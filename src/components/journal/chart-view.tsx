@@ -187,7 +187,7 @@ export function ChartView({
     <div
       ref={workspaceRef}
       className={cn(
-        "flex h-[calc(100dvh-6.25rem)] flex-col overflow-hidden bg-background text-foreground md:h-dvh",
+        "flex h-[calc(100dvh-6.25rem)] flex-col overflow-hidden overscroll-none bg-background text-foreground md:h-dvh",
         expanded && "fixed inset-0 z-40 h-dvh w-full",
       )}
     >
@@ -342,15 +342,24 @@ export function ChartView({
             </div>
 
             <p className={cn("mt-2 text-xs text-subtle", controlsOpen ? "block" : "hidden lg:block")}>
-              Streaming TradingView chart. Feed delay depends on the exchange and symbol; the external TradingView app
-              uses your TradingView account’s data permissions. Journal notes and P&L stay local.
+              Streaming TradingView chart. Feed delay depends on the exchange and symbol. TradingView does not allow
+              account sign-in inside embedded widgets, so this chart cannot load your saved layouts or account
+              favorites—drawings and ★ favorites here are stored in this browser only. For your full TradingView
+              account, use the external-link button to open this symbol in the TradingView app. Journal notes and
+              P&L stay local.
             </p>
           </>
         ) : null}
       </section>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
-        <section aria-label="Live TradingView chart" className="relative min-h-[36rem] min-w-0 flex-1 xl:min-h-0">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none xl:flex-row xl:overflow-hidden">
+        <section
+          aria-label="Live TradingView chart"
+          className={cn(
+            "relative min-h-[36rem] min-w-0 flex-1 xl:min-h-0",
+            expanded && "[&_iframe]:touch-none",
+          )}
+        >
           <TradingViewChart
             symbol={appliedSymbol}
             interval={tradingViewInterval(timeframe)}

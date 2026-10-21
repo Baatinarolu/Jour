@@ -37,6 +37,28 @@ export function TradingViewChart({
     const markReady = () => {
       const iframe = container.querySelector("iframe");
       if (!iframe) return false;
+
+      // TradingView's embed script lets a page-level tvwidgetsymbol query
+      // parameter override the JSON symbol. If that ever happens, rewrite the
+      // generated iframe settings so the chart cannot silently drift to a
+      // different (often default AAPL) symbol than the journal requested.
+      const src = iframe.getAttribute("src");
+      if (src) {
+        try {
+          const url = new URL(src, window.location.origin);
+          const settings = JSON.parse(decodeURIComponent(url.hash.slice(1))) as Record<string, unknown>;
+          if (settings.symbol !== cleanSymbol) {
+            settings.symbol = cleanSymbol;
+            url.hash = encodeURIComponent(JSON.stringify(settings));
+            iframe.setAttribute("src", url.toString());
+            return false;
+          }
+        } catch {
+          // If TradingView changes its embed URL format, showing the chart is
+          // still better than blocking it on a defensive parse.
+        }
+      }
+
       iframe.title = `${cleanSymbol} live TradingView chart`;
       iframe.allowFullscreen = true;
       iframe.setAttribute("allow", "fullscreen; clipboard-write");
@@ -45,7 +67,12 @@ export function TradingViewChart({
     };
 
     const observer = new MutationObserver(markReady);
-    observer.observe(container, { childList: true, subtree: true });
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["src"],
+    });
 
     const timeout = window.setTimeout(() => {
       if (!markReady()) setStatus("error");
@@ -56,7 +83,7 @@ export function TradingViewChart({
     script.async = true;
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
     script.onerror = () => setStatus("error");
-    script.textContent = JSON.stringify({
+    script.innerHTML = JSON.stringify({
       autosize: true,
       symbol: cleanSymbol,
       interval,
@@ -72,6 +99,10 @@ export function TradingViewChart({
       hide_volume: false,
       enable_publishing: false,
       allow_symbol_change: true,
+      // Do not let a previously saved TradingView layout (often AAPL) replace
+      // the symbol SANTANDC explicitly requested for this journal entry.
+      disabled_features: ["use_localstorage_for_settings", "save_chart_properties_to_local_storage"],
+      enabled_features: ["header_in_fullscreen_mode", "side_toolbar_in_fullscreen_mode"],
       withdateranges: true,
       details: false,
       hotlist: false,
@@ -102,7 +133,11 @@ export function TradingViewChart({
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#0c0d10]">
-      <div ref={containerRef} className="tradingview-widget-container relative min-h-0 flex-1" />
+      <div
+        key={`${cleanSymbol}-${interval}-${watchlistKey}-${reloadKey}-${internalReloadKey}`}
+        ref={containerRef}
+        className="tradingview-widget-container relative min-h-0 flex-1"
+      />
 
       {status !== "ready" ? (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0c0d10]/92 px-6 text-center">

@@ -40,7 +40,8 @@ There is deliberately no account system, cloud database, broker connection, orde
 ### TradingView integration
 
 - The **Chart** view is a full-viewport live workspace using TradingView's official Advanced Chart widget. It fills the app window by default, has quick timeframe controls (5m by default), and offers a true browser **Full screen** mode with an in-app expanded fallback when a browser or preview blocks the Fullscreen API.
-- Hide the journal side panel for a chart-only workspace, or show it when you want the selected entry beside the live chart. The TradingView watchlist generated from journal symbols is optional and off by default so it does not shrink the candles.
+- On mobile and in full-screen mode the SANTANDC controls collapse to a slim chart bar, so almost the entire screen belongs to TradingView. Hide the journal side panel for a chart-only workspace, or show it when you want the selected entry beside the live chart. The TradingView watchlist generated from journal symbols is optional and off by default so it does not shrink the candles.
+- SANTANDC forces the widget to start on the journal's requested symbol and disables saved-widget settings restore, preventing a previous/default symbol such as AAPL from silently replacing an ES or forex entry.
 - Each trade can carry an exact exchange-qualified TradingView symbol such as `NASDAQ:NVDA`, `CME_MINI:ES1!`, `FX:EURUSD`, or `BINANCE:BTCUSDT`.
 - Common journal shorthand is mapped for futures, forex, crypto majors, common indices, gold, silver, and oil. If the mapping is wrong for your broker/feed, edit `tvSymbol` on the trade.
 - Selecting a journal entry loads its symbol while preserving the live timeframe you are using; the panel can switch back to the entry's recorded timeframe when needed.

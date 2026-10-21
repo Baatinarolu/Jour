@@ -29,6 +29,7 @@ import {
   PanelRightOpen,
   Pencil,
   RefreshCw,
+  SlidersHorizontal,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -81,6 +82,7 @@ export function ChartView({
   const [showWatchlist, setShowWatchlist] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [chartReloadKey, setChartReloadKey] = useState(0);
+  const [controlsOpen, setControlsOpen] = useState(false);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const panelBeforeExpand = useRef(true);
 
@@ -126,8 +128,10 @@ export function ChartView({
     : null;
   const pnl = selected ? tradePnl(selected) : 0;
 
-  function applySymbol() {
-    setAppliedSymbol(symbolDraft.trim().toUpperCase() || inferred);
+  function applySymbol(forceReload = false) {
+    const next = symbolDraft.trim().toUpperCase() || inferred;
+    setAppliedSymbol(next);
+    if (forceReload || next !== appliedSymbol) setChartReloadKey((value) => value + 1);
   }
 
   async function exitNativeFullscreen() {
@@ -185,134 +189,161 @@ export function ChartView({
         expanded && "fixed inset-0 z-40 h-dvh w-full",
       )}
     >
-      <section className={cn("shrink-0 border-b border-border bg-card px-3", expanded ? "py-2" : "py-3")}>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-48">
-            <div className="flex items-center gap-2">
-              <span className="relative flex size-2.5" aria-hidden="true">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-up opacity-60" />
-                <span className="relative inline-flex size-2.5 rounded-full bg-up" />
-              </span>
-              <h2 className="text-base font-medium tracking-tight">Live TradingView</h2>
-            </div>
-            <p className="mt-0.5 truncate font-mono text-xs text-muted">
-              {appliedSymbol || inferred} · {timeframe}
-            </p>
+      <section className={cn("shrink-0 border-b border-border bg-card px-3", expanded ? "py-2" : "py-2.5")}>
+        <div className="flex min-h-11 items-center gap-2">
+          <span className="relative flex size-2.5 shrink-0" aria-hidden="true">
+            <span className="absolute inline-flex size-full animate-ping rounded-full bg-up opacity-60" />
+            <span className="relative inline-flex size-2.5 rounded-full bg-up" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate font-mono text-sm font-medium">{appliedSymbol || inferred}</h2>
+            <p className="text-[11px] font-medium uppercase tracking-wider text-up">Live · {timeframe}</p>
           </div>
 
-          <div className="w-full sm:w-72">
-            <label htmlFor="chart-trade" className="sr-only">Journal entry</label>
-            <SelectField
-              id="chart-trade"
-              value={selected?.id ?? ""}
-              disabled={!recent.length}
-              onChange={(event) => setSelectedId(event.target.value)}
-            >
-              {recent.length ? null : <option value="">No trades yet</option>}
-              {recent.map((trade) => (
-                <option key={trade.id} value={trade.id}>
-                  {trade.symbol} · {sideLabel(trade.side)} · {formatDateTime(trade.closedAt)}
-                </option>
-              ))}
-            </SelectField>
-          </div>
-
-          <div className="flex min-w-0 flex-1 gap-2 sm:min-w-80">
-            <div className="min-w-0 flex-1">
-              <label htmlFor="tv-symbol" className="sr-only">TradingView symbol</label>
-              <TextField
-                id="tv-symbol"
-                value={symbolDraft}
-                onChange={(event) => setSymbolDraft(event.target.value.toUpperCase())}
-                onBlur={applySymbol}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") applySymbol();
-                }}
-                placeholder="NASDAQ:NVDA, FX:EURUSD, CME_MINI:ES1!"
-                autoComplete="off"
-              />
-            </div>
-            <Button onClick={applySymbol}>Load</Button>
-          </div>
-
-          <div className="flex max-w-full items-center gap-1 overflow-x-auto" role="group" aria-label="Chart timeframe">
-            {TIMEFRAMES.map((item) => (
-              <button
-                key={item}
-                type="button"
-                aria-pressed={timeframe === item}
-                onClick={() => setTimeframe(item)}
-                className={cn(
-                  "press h-11 shrink-0 rounded-sm px-3 font-mono text-sm",
-                  timeframe === item
-                    ? "bg-accent text-accent-foreground"
-                    : "border border-border bg-background text-muted hover:text-foreground",
-                )}
-              >
-                {item}
-              </button>
-            ))}
-          </div>
-
-          <div className="ml-auto flex flex-wrap items-center gap-2">
+          {!expanded ? (
             <Button
               variant="ghost"
               size="icon"
-              aria-label="Reload live chart"
-              title="Reload live chart"
-              onClick={() => setChartReloadKey((value) => value + 1)}
+              className="lg:hidden"
+              aria-label={controlsOpen ? "Hide chart controls" : "Show chart controls"}
+              aria-expanded={controlsOpen}
+              title="Chart controls"
+              onClick={() => setControlsOpen((value) => !value)}
             >
-              <RefreshCw className="size-4" />
+              <SlidersHorizontal className="size-4" />
             </Button>
-            <Button
-              variant={showWatchlist ? "secondary" : "ghost"}
-              size="icon"
-              aria-label="Toggle TradingView watchlist"
-              aria-pressed={showWatchlist}
-              title="Toggle TradingView watchlist (reloads the widget)"
-              onClick={() => setShowWatchlist((value) => !value)}
-            >
-              <List className="size-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={panelOpen ? "Hide journal panel" : "Show journal panel"}
-              aria-pressed={panelOpen}
-              title={panelOpen ? "Hide journal panel" : "Show journal panel"}
-              onClick={() => setPanelOpen((value) => !value)}
-            >
-              {panelOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
-            </Button>
-            <a
-              href={externalUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="press inline-flex h-11 items-center justify-center gap-2 rounded-sm border border-border bg-card-2 px-3 text-sm font-medium"
-            >
-              <ExternalLink className="size-4" />
-              <span className="hidden 2xl:inline">TradingView app</span>
-            </a>
-            {selected ? (
-              <Button variant="secondary" onClick={() => void editSelected()}>
-                <Pencil className="size-4" />
-                <span className="hidden 2xl:inline">Edit entry</span>
-              </Button>
-            ) : (
-              <Button variant="secondary" onClick={() => void createTrade()}>Log a trade</Button>
-            )}
-            <Button onClick={() => void toggleExpanded()} aria-pressed={expanded}>
-              {expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-              {expanded ? "Exit full screen" : "Full screen"}
-            </Button>
-          </div>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={panelOpen ? "Hide journal panel" : "Show journal panel"}
+            aria-pressed={panelOpen}
+            title={panelOpen ? "Hide journal panel" : "Show journal panel"}
+            onClick={() => setPanelOpen((value) => !value)}
+          >
+            {panelOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+          </Button>
+          <a
+            href={externalUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open in TradingView app"
+            title="Open in TradingView app"
+            className="press inline-flex size-11 items-center justify-center rounded-sm border border-border bg-card-2 text-sm font-medium"
+          >
+            <ExternalLink className="size-4" />
+          </a>
+          <Button
+            onClick={() => void toggleExpanded()}
+            aria-pressed={expanded}
+            aria-label={expanded ? "Exit full screen" : "Enter full screen"}
+          >
+            {expanded ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+            <span className="hidden md:inline">{expanded ? "Exit full screen" : "Full screen"}</span>
+          </Button>
         </div>
 
         {!expanded ? (
-          <p className="mt-2 hidden text-xs text-subtle sm:block">
-            Streaming TradingView chart. Feed delay depends on the exchange and symbol; the external TradingView app
-            uses your TradingView account’s data permissions. Journal notes and P&L stay local.
-          </p>
+          <>
+            <div className={cn("mt-3 flex-wrap items-center gap-3", controlsOpen ? "flex" : "hidden lg:flex")}>
+              <div className="w-full sm:w-72">
+                <label htmlFor="chart-trade" className="sr-only">Journal entry</label>
+                <SelectField
+                  id="chart-trade"
+                  value={selected?.id ?? ""}
+                  disabled={!recent.length}
+                  onChange={(event) => {
+                    setSelectedId(event.target.value);
+                    setChartReloadKey((value) => value + 1);
+                  }}
+                >
+                  {recent.length ? null : <option value="">No trades yet</option>}
+                  {recent.map((trade) => (
+                    <option key={trade.id} value={trade.id}>
+                      {trade.symbol} · {sideLabel(trade.side)} · {formatDateTime(trade.closedAt)}
+                    </option>
+                  ))}
+                </SelectField>
+              </div>
+
+              <div className="flex min-w-0 flex-1 gap-2 sm:min-w-80">
+                <div className="min-w-0 flex-1">
+                  <label htmlFor="tv-symbol" className="sr-only">TradingView symbol</label>
+                  <TextField
+                    id="tv-symbol"
+                    value={symbolDraft}
+                    onChange={(event) => setSymbolDraft(event.target.value.toUpperCase())}
+                    onBlur={() => applySymbol()}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") applySymbol(true);
+                    }}
+                    placeholder="NASDAQ:NVDA, FX:EURUSD, CME_MINI:ES1!"
+                    autoComplete="off"
+                  />
+                </div>
+                <Button
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => applySymbol(true)}
+                >
+                  Load
+                </Button>
+              </div>
+
+              <div className="flex max-w-full items-center gap-1 overflow-x-auto" role="group" aria-label="Chart timeframe">
+                {TIMEFRAMES.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    aria-pressed={timeframe === item}
+                    onClick={() => setTimeframe(item)}
+                    className={cn(
+                      "press h-11 shrink-0 rounded-sm px-3 font-mono text-sm",
+                      timeframe === item
+                        ? "bg-accent text-accent-foreground"
+                        : "border border-border bg-background text-muted hover:text-foreground",
+                    )}
+                  >
+                    {item}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Reload live chart"
+                  title="Reload live chart"
+                  onClick={() => setChartReloadKey((value) => value + 1)}
+                >
+                  <RefreshCw className="size-4" />
+                </Button>
+                <Button
+                  variant={showWatchlist ? "secondary" : "ghost"}
+                  size="icon"
+                  aria-label="Toggle TradingView watchlist"
+                  aria-pressed={showWatchlist}
+                  title="Toggle TradingView watchlist (reloads the widget)"
+                  onClick={() => setShowWatchlist((value) => !value)}
+                >
+                  <List className="size-4" />
+                </Button>
+                {selected ? (
+                  <Button variant="secondary" onClick={() => void editSelected()}>
+                    <Pencil className="size-4" />
+                    <span className="hidden 2xl:inline">Edit entry</span>
+                  </Button>
+                ) : (
+                  <Button variant="secondary" onClick={() => void createTrade()}>Log a trade</Button>
+                )}
+              </div>
+            </div>
+
+            <p className={cn("mt-2 text-xs text-subtle", controlsOpen ? "block" : "hidden lg:block")}>
+              Streaming TradingView chart. Feed delay depends on the exchange and symbol; the external TradingView app
+              uses your TradingView account’s data permissions. Journal notes and P&L stay local.
+            </p>
+          </>
         ) : null}
       </section>
 
@@ -415,7 +446,10 @@ export function ChartView({
                         <li key={trade.id}>
                           <button
                             type="button"
-                            onClick={() => setSelectedId(trade.id)}
+                            onClick={() => {
+                              setSelectedId(trade.id);
+                              setChartReloadKey((value) => value + 1);
+                            }}
                             aria-current={selected?.id === trade.id ? "true" : undefined}
                             className={cn(
                               "flex w-full items-center justify-between gap-3 rounded-sm px-3 py-2 text-left text-sm",

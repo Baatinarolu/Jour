@@ -143,13 +143,24 @@ export function getJournal(userId: string): JournalRecord | null {
   return loadJournalFromDisk(userId);
 }
 
-export function saveJournal(userId: string, backup: JournalBackup): JournalRecord {
+export function saveJournal(userId: string, backup: JournalBackup, opts: { lastSyncedAt?: string | null; force?: boolean } = {}): JournalRecord {
   const now = new Date().toISOString();
   const existing = loadJournalFromDisk(userId);
-  const merged = existing ? mergeBackups(existing.backup, backup) : backup;
+  // Force replace (used for clear) — skip merge
+  if (opts.force && !existing) {
+    const record: JournalRecord = { userId, backup: { ...backup, updatedAt: backup.updatedAt ?? now }, updatedAt: now, version: 1 };
+    saveJournalToDisk(record);
+    return record;
+  }
+  if (opts.force && existing) {
+    const record: JournalRecord = { userId, backup: { ...backup, updatedAt: backup.updatedAt ?? now }, updatedAt: now, version: existing.version + 1 };
+    saveJournalToDisk(record);
+    return record;
+  }
+  const merged = existing ? mergeBackups(existing.backup, backup, { lastSyncedAt: opts.lastSyncedAt ?? null }) : backup;
   const record: JournalRecord = {
     userId,
-    backup: merged,
+    backup: { ...merged, updatedAt: merged.updatedAt ?? backup.updatedAt ?? now },
     updatedAt: now,
     version: existing ? existing.version + 1 : 1,
   };
@@ -172,57 +183,79 @@ function pickNewer<T extends { updatedAt?: string; createdAt?: string }>(a: T, b
   return bt >= at ? b : a;
 }
 
-function mergeBackups(existing: JournalBackup, incoming: JournalBackup): JournalBackup {
+function isDeleted(missingRemoteUpdatedAt: string, lastSyncedAt: string | null): boolean {
+  if (!lastSyncedAt) return false;
+  return missingRemoteUpdatedAt <= lastSyncedAt;
+}
+
+function mergeBackups(existing: JournalBackup, incoming: JournalBackup, opts: { lastSyncedAt?: string | null } = {}): JournalBackup {
+  const lastSyncedAt = opts.lastSyncedAt ?? null;
   // Trades by id
   const tradesMap = new Map<string, JournalBackup["trades"][number]>();
-  for (const t of existing.trades) tradesMap.set(t.id, t);
-  for (const t of incoming.trades) {
+  for (const t of incoming.trades) tradesMap.set(t.id, t);
+  for (const t of existing.trades) {
     const prev = tradesMap.get(t.id);
-    if (!prev) tradesMap.set(t.id, t);
-    else tradesMap.set(t.id, pickNewer(prev, t) as typeof t);
+    if (!prev) {
+      const remoteUpdated = t.updatedAt || t.createdAt || existing.updatedAt || "";
+      if (isDeleted(remoteUpdated, lastSyncedAt)) continue;
+      tradesMap.set(t.id, t);
+    } else tradesMap.set(t.id, pickNewer(prev, t) as typeof t);
   }
 
   // Playbooks by id
   const playbooksMap = new Map<string, JournalBackup["playbooks"][number]>();
-  for (const p of existing.playbooks) playbooksMap.set(p.id, p);
-  for (const p of incoming.playbooks) {
+  for (const p of incoming.playbooks) playbooksMap.set(p.id, p);
+  for (const p of existing.playbooks) {
     const prev = playbooksMap.get(p.id);
-    if (!prev) playbooksMap.set(p.id, p);
-    else playbooksMap.set(p.id, pickNewer(prev, p) as typeof p);
+    if (!prev) {
+      const remoteUpdated = p.updatedAt || existing.updatedAt || "";
+      if (isDeleted(remoteUpdated, lastSyncedAt)) continue;
+      playbooksMap.set(p.id, p);
+    } else playbooksMap.set(p.id, pickNewer(prev, p) as typeof p);
   }
 
   // Day entries by date key
-  const dayEntries = { ...existing.dayEntries };
-  for (const [key, entry] of Object.entries(incoming.dayEntries)) {
+  const dayEntries: JournalBackup["dayEntries"] = { ...incoming.dayEntries };
+  for (const [key, entry] of Object.entries(existing.dayEntries)) {
     const prev = dayEntries[key];
-    if (!prev) dayEntries[key] = entry;
-    else dayEntries[key] = pickNewer(prev, entry);
+    if (!prev) {
+      const remoteUpdated = entry.updatedAt || existing.updatedAt || "";
+      if (isDeleted(remoteUpdated, lastSyncedAt)) continue;
+      dayEntries[key] = entry;
+    } else dayEntries[key] = pickNewer(prev, entry);
   }
-  // Also preserve existing keys not in incoming (already spread)
 
   // Weekly reviews by id
   const reviewsMap = new Map<string, JournalBackup["weeklyReviews"][number]>();
-  for (const r of existing.weeklyReviews) reviewsMap.set(r.id, r);
-  for (const r of incoming.weeklyReviews) {
+  for (const r of incoming.weeklyReviews) reviewsMap.set(r.id, r);
+  for (const r of existing.weeklyReviews) {
     const prev = reviewsMap.get(r.id);
-    if (!prev) reviewsMap.set(r.id, r);
-    else reviewsMap.set(r.id, pickNewer(prev, r) as typeof r);
+    if (!prev) {
+      const remoteUpdated = r.updatedAt || existing.updatedAt || "";
+      if (isDeleted(remoteUpdated, lastSyncedAt)) continue;
+      reviewsMap.set(r.id, r);
+    } else reviewsMap.set(r.id, pickNewer(prev, r) as typeof r);
   }
 
-  // Rules: union by id, keep latest text if duplicate, but rules have no updatedAt, so use incoming's text over existing
+  // Rules: union by id
   const rulesMap = new Map<string, JournalBackup["rules"][number]>();
-  for (const r of existing.rules) rulesMap.set(r.id, r);
   for (const r of incoming.rules) rulesMap.set(r.id, r);
+  for (const r of existing.rules) {
+    if (!rulesMap.has(r.id)) {
+      const localUpdated = incoming.updatedAt || "";
+      const remoteUpdated = existing.updatedAt || "";
+      if (lastSyncedAt && incoming.trades.length === 0 && incoming.rules.length === 0 && localUpdated > (remoteUpdated || "")) continue;
+      rulesMap.set(r.id, r);
+    } else rulesMap.set(r.id, r);
+  }
 
-  // Checks: union per date, deduplicate ids
-  const checks: JournalBackup["checks"] = { ...existing.checks };
-  for (const [date, ids] of Object.entries(incoming.checks)) {
+  // Checks: union per date
+  const checks: JournalBackup["checks"] = { ...incoming.checks };
+  for (const [date, ids] of Object.entries(existing.checks)) {
     const prev = checks[date] ?? [];
     checks[date] = [...new Set([...prev, ...ids])];
   }
 
-  // Simple LWW for balance/activePlaybook based on overall backup recency
-  // Use most recent trade updatedAt or backup-level timestamps as heuristic
   const incomingRecent = mostRecentTimestamp(incoming);
   const existingRecent = mostRecentTimestamp(existing);
   const incomingIsNewer = incomingRecent >= existingRecent;
@@ -238,6 +271,7 @@ function mergeBackups(existing: JournalBackup, incoming: JournalBackup): Journal
     activePlaybookId: incomingIsNewer ? incoming.activePlaybookId : existing.activePlaybookId ?? incoming.activePlaybookId,
     dayEntries,
     weeklyReviews: [...reviewsMap.values()].sort((a, b) => b.weekStart.localeCompare(a.weekStart)),
+    updatedAt: incoming.updatedAt && existing.updatedAt ? (incoming.updatedAt >= existing.updatedAt ? incoming.updatedAt : existing.updatedAt) : incoming.updatedAt ?? existing.updatedAt ?? new Date().toISOString(),
   };
 }
 

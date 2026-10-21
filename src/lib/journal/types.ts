@@ -216,6 +216,8 @@ export type JournalBackup = {
   activePlaybookId: string | null;
   dayEntries: DayEntries;
   weeklyReviews: WeeklyReview[];
+  /** ISO timestamp of the last local mutation; used for cloud deletion semantics. */
+  updatedAt?: string;
 };
 
 export type JournalView = "overview" | "daily" | "trades" | "chart" | "review" | "rules";

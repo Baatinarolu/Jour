@@ -141,13 +141,14 @@ export async function pullBackup(): Promise<{ backup: JournalBackup | null; upda
   return data as { backup: JournalBackup | null; updatedAt: string | null };
 }
 
-export async function pushBackup(backup: JournalBackup): Promise<{ backup: JournalBackup; updatedAt: string }> {
+export async function pushBackup(backup: JournalBackup, opts: { force?: boolean } = {}): Promise<{ backup: JournalBackup; updatedAt: string }> {
   const headers = { ...(authHeaders() as Record<string, string>), "Content-Type": "application/json" } as HeadersInit;
   if (!(headers as Record<string, string>).Authorization) throw new Error("Not signed in");
+  const lastSyncedAt = useSync.getState().lastSyncedAt;
   const res = await fetch("/api/sync", {
     method: "PUT",
     headers,
-    body: JSON.stringify({ backup }),
+    body: JSON.stringify({ backup, lastSyncedAt, force: opts.force ?? false }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { statusMessage?: string }).statusMessage || `Push failed (${res.status})`);
@@ -178,40 +179,71 @@ function mostRecentTimestamp(backup: JournalBackup): string {
   return max || new Date(0).toISOString();
 }
 
-export function mergeBackups(local: JournalBackup, remote: JournalBackup): JournalBackup {
+// Deletion-aware merge: if lastSyncedAt is set, a remote entity that existed at lastSync
+// but is missing locally is considered intentionally deleted.
+function isDeleted(missingRemoteUpdatedAt: string, lastSyncedAt: string | null): boolean {
+  if (!lastSyncedAt) return false;
+  // If remote entity was last updated before or at last sync, and local doesn't have it, it was deleted locally after sync
+  return missingRemoteUpdatedAt <= lastSyncedAt;
+}
+
+export function mergeBackups(local: JournalBackup, remote: JournalBackup, opts: { lastSyncedAt?: string | null } = {}): JournalBackup {
+  const lastSyncedAt = opts.lastSyncedAt ?? useSync.getState().lastSyncedAt ?? null;
   const tradesMap = new Map<string, JournalBackup["trades"][number]>();
   for (const t of local.trades) tradesMap.set(t.id, t);
   for (const t of remote.trades) {
     const prev = tradesMap.get(t.id);
-    if (!prev) tradesMap.set(t.id, t);
-    else tradesMap.set(t.id, pickNewer(prev, t) as typeof t);
+    if (!prev) {
+      // Remote has trade that local doesn't: keep it unless it was deleted locally
+      const remoteUpdated = t.updatedAt || t.createdAt || remote.updatedAt || "";
+      if (isDeleted(remoteUpdated, lastSyncedAt)) continue;
+      tradesMap.set(t.id, t);
+    } else tradesMap.set(t.id, pickNewer(prev, t) as typeof t);
   }
   const playbooksMap = new Map<string, JournalBackup["playbooks"][number]>();
   for (const p of local.playbooks) playbooksMap.set(p.id, p);
   for (const p of remote.playbooks) {
     const prev = playbooksMap.get(p.id);
-    if (!prev) playbooksMap.set(p.id, p);
-    else playbooksMap.set(p.id, pickNewer(prev, p) as typeof p);
+    if (!prev) {
+      const remoteUpdated = p.updatedAt || remote.updatedAt || "";
+      if (isDeleted(remoteUpdated, lastSyncedAt)) continue;
+      playbooksMap.set(p.id, p);
+    } else playbooksMap.set(p.id, pickNewer(prev, p) as typeof p);
   }
   const dayEntries: JournalBackup["dayEntries"] = { ...local.dayEntries };
   for (const [key, entry] of Object.entries(remote.dayEntries)) {
     const prev = dayEntries[key];
-    if (!prev) dayEntries[key] = entry;
-    else dayEntries[key] = pickNewer(prev, entry);
+    if (!prev) {
+      const remoteUpdated = entry.updatedAt || remote.updatedAt || "";
+      if (isDeleted(remoteUpdated, lastSyncedAt)) continue;
+      dayEntries[key] = entry;
+    } else dayEntries[key] = pickNewer(prev, entry);
   }
   const reviewsMap = new Map<string, JournalBackup["weeklyReviews"][number]>();
   for (const r of local.weeklyReviews) reviewsMap.set(r.id, r);
   for (const r of remote.weeklyReviews) {
     const prev = reviewsMap.get(r.id);
-    if (!prev) reviewsMap.set(r.id, r);
-    else reviewsMap.set(r.id, pickNewer(prev, r) as typeof r);
+    if (!prev) {
+      const remoteUpdated = r.updatedAt || remote.updatedAt || "";
+      if (isDeleted(remoteUpdated, lastSyncedAt)) continue;
+      reviewsMap.set(r.id, r);
+    } else reviewsMap.set(r.id, pickNewer(prev, r) as typeof r);
   }
   const rulesMap = new Map<string, JournalBackup["rules"][number]>();
   for (const r of local.rules) rulesMap.set(r.id, r);
-  for (const r of remote.rules) rulesMap.set(r.id, r);
+  for (const r of remote.rules) {
+    if (!rulesMap.has(r.id)) {
+      // Rules have no timestamp — use backup-level timestamp heuristic; if locally we have 0 rules and remote has some, but lastSyncedAt exists and local updatedAt is newer, treat as deleted
+      const localUpdated = local.updatedAt || "";
+      const remoteUpdated = remote.updatedAt || "";
+      if (lastSyncedAt && local.trades.length === 0 && local.rules.length === 0 && localUpdated > (remoteUpdated || "")) continue;
+      rulesMap.set(r.id, r);
+    } else rulesMap.set(r.id, r);
+  }
   const checks: JournalBackup["checks"] = { ...local.checks };
   for (const [date, ids] of Object.entries(remote.checks)) {
     const prev = checks[date] ?? [];
+    // For checks, union is safe; if local deleted a date's checks, remote's date might reappear — acceptable edge case
     checks[date] = [...new Set([...prev, ...ids])];
   }
   const remoteRecent = mostRecentTimestamp(remote);
@@ -229,6 +261,7 @@ export function mergeBackups(local: JournalBackup, remote: JournalBackup): Journ
     activePlaybookId: remoteIsNewer ? remote.activePlaybookId : local.activePlaybookId ?? remote.activePlaybookId,
     dayEntries,
     weeklyReviews: [...reviewsMap.values()].sort((a, b) => b.weekStart.localeCompare(a.weekStart)),
+    updatedAt: local.updatedAt && remote.updatedAt ? (local.updatedAt >= remote.updatedAt ? local.updatedAt : remote.updatedAt) : local.updatedAt ?? remote.updatedAt ?? new Date().toISOString(),
   };
 }
 
@@ -246,6 +279,7 @@ export function getCurrentBackup(): JournalBackup {
     activePlaybookId: s.activePlaybookId,
     dayEntries: s.dayEntries,
     weeklyReviews: s.weeklyReviews,
+    updatedAt: s.updatedAt,
   };
 }
 
@@ -276,10 +310,20 @@ export async function syncNow(options: { direction?: "push" | "pull" | "both" } 
             useSync.getState().setLastSyncedAt(pushed.updatedAt);
             useSync.getState().setStatus("synced");
             return;
+          } else {
+            // Even if merged equals local, still ensure server is up to date (handles deletions where merged==local but server has extra)
+            const lastSyncedAt = useSync.getState().lastSyncedAt;
+            const remoteHasExtra = remote.trades.length !== local.trades.length || Object.keys(remote.dayEntries).length !== Object.keys(local.dayEntries).length || remote.weeklyReviews.length !== local.weeklyReviews.length;
+            if (remoteHasExtra && lastSyncedAt) {
+              const pushed = await pushBackup(local);
+              useSync.getState().setLastSyncedAt(pushed.updatedAt);
+              useSync.getState().setStatus("synced");
+              return;
+            }
           }
         }
       }
-      // Fallback push local
+      // Fallback push local (handles clear: local empty should force delete on server)
       const backup = getCurrentBackup();
       const pushed = await pushBackup(backup);
       useSync.getState().setLastSyncedAt(pushed.updatedAt);

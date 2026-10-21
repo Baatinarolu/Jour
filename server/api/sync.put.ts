@@ -36,6 +36,7 @@ const backupSchema = z.object({
   activePlaybookId: z.string().nullable(),
   dayEntries: z.record(z.string(), z.object({ date: z.string() }).passthrough()),
   weeklyReviews: z.array(z.object({ id: z.string().min(1), weekStart: z.string(), weekEnd: z.string() }).passthrough()),
+  updatedAt: z.string().optional(),
 }).passthrough();
 
 export default defineEventHandler(async (event) => {
@@ -53,9 +54,11 @@ export default defineEventHandler(async (event) => {
   const user = getUserById(payload.sub);
   if (!user) throw createError({ statusCode: 401, statusMessage: "User not found" });
 
-  const body = await readBody(event);
-  // Body may be { backup: {...} } or raw backup
+  const body = await readBody(event) as { backup?: unknown; lastSyncedAt?: string | null; force?: boolean } & Record<string, unknown>;
+  // Body may be { backup: {...}, lastSyncedAt, force } or raw backup
   const rawBackup = (body as { backup?: unknown })?.backup ?? body;
+  const lastSyncedAt = typeof body.lastSyncedAt === "string" ? body.lastSyncedAt : null;
+  const force = body.force === true;
 
   const parsed = backupSchema.safeParse(rawBackup);
   if (!parsed.success) {
@@ -69,7 +72,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 413, statusMessage: "Backup too large (max 10MB). Remove screenshots or split." });
   }
 
-  const record = saveJournal(user.id, parsed.data as unknown as import("../../src/lib/journal/types.ts").JournalBackup);
+  const record = saveJournal(user.id, parsed.data as unknown as import("../../src/lib/journal/types.ts").JournalBackup, { lastSyncedAt, force });
   const fresh = getJournal(user.id)!;
 
   setResponseHeader(event, "Content-Type", "application/json");

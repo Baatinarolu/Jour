@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { FieldLabel, TextField } from "@/components/ui/field";
 import { useSync, login, register, syncNow, fetchMe } from "@/lib/journal/sync";
 import { formatDistanceToNow } from "date-fns";
-import { Cloud, CloudOff, Loader2, LogOut, RefreshCw, ShieldCheck } from "lucide-react";
+import { Cloud, CloudOff, Loader2, LogOut, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 
 export function CloudSyncPanel() {
   const user = useSync((s) => s.user);
@@ -206,8 +206,45 @@ export function CloudSyncPanel() {
       </div>
 
       <p className="mt-3 text-xs text-subtle">
-        Edits merge by updated time — newer wins per trade/playbook/day so you don’t lose phone edits when desktop pushes. Screenshots count toward size; max backup ~10 MB.
+        Edits merge by updated time — newer wins per trade/playbook/day so you don’t lose phone edits when desktop pushes. Deletions sync too: if you erase a trade locally after syncing, it’s removed in the cloud on next push. Screenshots count toward size; max backup ~10 MB.
       </p>
+
+      <div className="mt-4 rounded-sm border border-border bg-background p-3">
+        <p className="text-xs font-medium text-muted">Demo keeps coming back?</p>
+        <p className="mt-1 text-xs text-subtle">
+          Clearing locally now correctly clears the cloud (fixed in this update). If demo still persists, use “Clear cloud” to force-replace cloud with your current local journal — handy if the old buggy merge left orphaned demo data.
+        </p>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mt-2"
+          disabled={busy || status === "syncing"}
+          onClick={async () => {
+            if (!confirm("Replace cloud journal with your current local journal? Use this if demo data keeps reappearing after erase.")) return;
+            setBusy(true);
+            setMsg(null);
+            setStatus("syncing");
+            try {
+              const { getCurrentBackup, pushBackup } = await import("@/lib/journal/sync");
+              const backup = getCurrentBackup();
+              // Force replace — tells server to skip merge and take local as truth
+              const pushed = await pushBackup(backup, { force: true });
+              useSync.getState().setLastSyncedAt(pushed.updatedAt);
+              setStatus("synced");
+              setMsg("Cloud now matches local — demo cleared if local was empty.");
+            } catch (err) {
+              const m = err instanceof Error ? err.message : String(err);
+              setMsg(m);
+              setStatus("error", m);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <Trash2 className="size-3.5" />
+          Clear cloud (force push local)
+        </Button>
+      </div>
     </div>
   );
 }

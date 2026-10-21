@@ -191,6 +191,7 @@ const backupSchema = z.union([
     activePlaybookId: z.string().nullable(),
     dayEntries: z.record(z.string(), dayEntrySchema),
     weeklyReviews: z.array(weeklyReviewSchema),
+    updatedAt: dateString.optional(),
   }),
 ]);
 
@@ -335,6 +336,7 @@ function normalizeBackup(data: z.infer<typeof backupSchema>): JournalBackup {
     activePlaybookId,
     dayEntries,
     weeklyReviews,
+    updatedAt: (data as { updatedAt?: string }).updatedAt ?? new Date().toISOString(),
   };
 }
 

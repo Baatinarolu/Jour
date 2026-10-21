@@ -2,7 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/dialog";
 import { FieldLabel, TextField } from "@/components/ui/field";
 import { parseBackup, serializeBackup } from "@/lib/journal/backup";
-import type { JournalBackup } from "@/lib/journal/types";
+import { parseCsvTrades, tradesToCsv, type CsvImportResult } from "@/lib/journal/csv";
+import type { JournalBackup, Trade } from "@/lib/journal/types";
 import { format } from "date-fns";
 import { useEffect, useRef, useState } from "react";
 
@@ -13,6 +14,7 @@ export function SettingsDialog({
   backup,
   onBalance,
   onReplace,
+  onImportCsv,
   onClear,
   onSample,
 }: {
@@ -22,13 +24,16 @@ export function SettingsDialog({
   backup: JournalBackup;
   onBalance: (value: number) => void;
   onReplace: (data: JournalBackup) => void;
+  onImportCsv: (trades: Trade[]) => void;
   onClear: () => void;
   onSample: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const csvRef = useRef<HTMLInputElement>(null);
   const [balance, setBalance] = useState(String(startingBalance));
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState<JournalBackup | null>(null);
+  const [pendingCsv, setPendingCsv] = useState<CsvImportResult | null>(null);
   const [mode, setMode] = useState<"idle" | "clear" | "sample">("idle");
 
   useEffect(() => {
@@ -36,6 +41,7 @@ export function SettingsDialog({
     setBalance(String(startingBalance));
     setError(null);
     setPending(null);
+    setPendingCsv(null);
     setMode("idle");
   }, [open, startingBalance]);
 
@@ -43,6 +49,7 @@ export function SettingsDialog({
     if (!next) {
       setError(null);
       setPending(null);
+      setPendingCsv(null);
       setMode("idle");
       setBalance(String(startingBalance));
     }
@@ -126,10 +133,55 @@ export function SettingsDialog({
               }
               setError(null);
               setPending(parsed.data);
+              setPendingCsv(null);
               setMode("idle");
             }}
           />
         </div>
+
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              const blob = new Blob([tradesToCsv(backup.trades)], { type: "text/csv" });
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = `folio-trades-${format(new Date(), "yyyy-MM-dd")}.csv`;
+              link.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Download CSV
+          </Button>
+          <Button variant="secondary" onClick={() => csvRef.current?.click()}>
+            Import CSV
+          </Button>
+          <input
+            ref={csvRef}
+            type="file"
+            accept="text/csv,.csv"
+            className="sr-only"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (!file) return;
+              const parsed = parseCsvTrades(await file.text());
+              if (!parsed.trades.length) {
+                setError(parsed.errors[0] ?? "No trades found in that CSV.");
+                setPendingCsv(null);
+                return;
+              }
+              setError(null);
+              setPending(null);
+              setPendingCsv(parsed);
+              setMode("idle");
+            }}
+          />
+        </div>
+        <p className="-mt-3 text-sm text-subtle">
+          CSV adds trades to this journal. A backup replaces it.
+        </p>
 
         {pending ? (
           <div className="rounded-sm border border-border bg-background p-4">
@@ -147,6 +199,33 @@ export function SettingsDialog({
                 Replace
               </Button>
               <Button variant="ghost" onClick={() => setPending(null)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : null}
+
+        {pendingCsv ? (
+          <div className="rounded-sm border border-border bg-background p-4">
+            <p className="text-sm">
+              Add {pendingCsv.trades.length} trades from the CSV? Trades already in the journal stay.
+            </p>
+            {pendingCsv.errors.length ? (
+              <p className="mt-2 text-sm text-muted">
+                {pendingCsv.errors.length} rows will be skipped. First: {pendingCsv.errors[0]}
+              </p>
+            ) : null}
+            <div className="mt-3 flex gap-2">
+              <Button
+                onClick={() => {
+                  onImportCsv(pendingCsv.trades);
+                  setPendingCsv(null);
+                  close(false);
+                }}
+              >
+                Add trades
+              </Button>
+              <Button variant="ghost" onClick={() => setPendingCsv(null)}>
                 Cancel
               </Button>
             </div>

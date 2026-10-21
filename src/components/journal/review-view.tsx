@@ -1,4 +1,4 @@
-import { groupTrades, planSplit, tradePnl } from "@/lib/journal/calc";
+import { groupTrades, planSplit, tagGroups, tradePnl } from "@/lib/journal/calc";
 import { dayKey, formatMoney, formatPct, pnlClass, sessionLabel, sideLabel, todayKey } from "@/lib/journal/format";
 import type { Grade, Session, Side, Trade } from "@/lib/journal/types";
 import { cn } from "@/lib/utils";
@@ -77,9 +77,9 @@ export function ReviewView({
   );
   const symbolMax = Math.max(...symbols.slice(0, 6).map((item) => Math.abs(item.net)), 0);
   const weekdays = ordered(
-    groupTrades(trades, (t) => format(new Date(t.closedAt), "EEE")),
-    [...WEEKDAYS],
-    (key) => key,
+    groupTrades(trades, (t) => String((new Date(t.closedAt).getDay() + 6) % 7)),
+    WEEKDAYS.map((_, index) => String(index)),
+    (key) => WEEKDAYS[Number(key)],
   );
   const weekdayMax = Math.max(...weekdays.map((item) => Math.abs(item.net)), 0);
   const sessions = ordered(groupTrades(trades, (t) => t.session), SESSIONS, (key) =>
@@ -90,10 +90,7 @@ export function ReviewView({
   const sideMax = Math.max(...sides.map((item) => Math.abs(item.net)), 0);
   const grades = ordered(groupTrades(trades, (t) => t.grade), GRADES, (key) => `Grade ${key}`);
   const gradeMax = Math.max(...grades.map((item) => Math.abs(item.net)), 0);
-  const tags = groupTrades(
-    trades.filter((t) => t.tags.length),
-    (t) => t.tags[0] ?? "",
-  ).sort((a, b) => a.net - b.net);
+  const tags = tagGroups(trades);
   const tagMax = Math.max(...tags.map((item) => Math.abs(item.net)), 0);
 
   const byDay = new Map<string, number>();
@@ -136,7 +133,7 @@ export function ReviewView({
           <h2 className="text-sm font-medium text-muted">Daily result</h2>
           <div ref={scroller} className="mt-4 overflow-x-auto">
             <div className="flex w-max gap-1">
-              <div className="flex flex-col gap-1 pr-1">
+              <div className="sticky left-0 z-10 flex shrink-0 flex-col gap-1 bg-card pr-1">
                 {["M", "T", "W", "T", "F", "S", "S"].map((label, index) => (
                   <div key={`${label}-${index}`} className="flex h-11 w-4 items-center text-xs text-subtle">
                     {label}
@@ -244,6 +241,9 @@ export function ReviewView({
           {tags.map((stat) => (
             <Meter key={stat.key} stat={stat} max={tagMax} />
           ))}
+          <p className="text-sm text-subtle">
+            A trade counts under every tag it carries, so these rows can overlap.
+          </p>
         </Panel>
       ) : null}
     </div>

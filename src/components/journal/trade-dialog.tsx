@@ -13,7 +13,17 @@ import {
   sideLabel,
   toDatetimeLocal,
 } from "@/lib/journal/format";
-import { GRADES, MARKETS, SESSIONS, type Grade, type Market, type Session, type Side, type Trade } from "@/lib/journal/types";
+import {
+  defaultMultiplier,
+  GRADES,
+  MARKETS,
+  SESSIONS,
+  type Grade,
+  type Market,
+  type Session,
+  type Side,
+  type Trade,
+} from "@/lib/journal/types";
 import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 
@@ -26,6 +36,7 @@ type Draft = {
   entry: string;
   exit: string;
   quantity: string;
+  multiplier: string;
   stop: string;
   fees: string;
   setup: string;
@@ -47,6 +58,7 @@ function blankDraft(): Draft {
     entry: "",
     exit: "",
     quantity: "",
+    multiplier: "1",
     stop: "",
     fees: "0",
     setup: "",
@@ -68,6 +80,7 @@ function fromTrade(trade: Trade): Draft {
     entry: String(trade.entry),
     exit: String(trade.exit),
     quantity: String(trade.quantity),
+    multiplier: String(trade.multiplier),
     stop: trade.stop == null ? "" : String(trade.stop),
     fees: String(trade.fees),
     setup: trade.setup,
@@ -101,7 +114,7 @@ function Choice<T extends string>({
     <div>
       <p className="mb-1.5 text-sm font-medium text-muted">{label}</p>
       <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2">
-        {options.map((option) => {
+        {options.map((option, index) => {
           const active = option.value === value;
           return (
             <button
@@ -109,7 +122,24 @@ function Choice<T extends string>({
               type="button"
               role="radio"
               aria-checked={active}
+              tabIndex={active ? 0 : -1}
               onClick={() => onChange(option.value)}
+              onKeyDown={(event) => {
+                let nextIndex: number | null = null;
+                if (["ArrowRight", "ArrowDown"].includes(event.key)) {
+                  nextIndex = (index + 1) % options.length;
+                } else if (["ArrowLeft", "ArrowUp"].includes(event.key)) {
+                  nextIndex = (index - 1 + options.length) % options.length;
+                } else if (event.key === "Home") nextIndex = 0;
+                else if (event.key === "End") nextIndex = options.length - 1;
+                if (nextIndex == null) return;
+                event.preventDefault();
+                onChange(options[nextIndex].value);
+                const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
+                  '[role="radio"]',
+                );
+                buttons?.[nextIndex]?.focus();
+              }}
               className={cn(
                 "press h-11 rounded-sm px-3 text-sm",
                 active ? "bg-accent text-accent-foreground" : "border border-border bg-background text-muted",
@@ -154,6 +184,7 @@ export function TradeDialog({
     const entry = num(draft.entry);
     const exit = num(draft.exit);
     const quantity = num(draft.quantity);
+    const multiplier = num(draft.multiplier);
     const fees = num(draft.fees) ?? 0;
     const stop = draft.stop.trim() ? num(draft.stop) : null;
     if (
@@ -161,6 +192,8 @@ export function TradeDialog({
       exit == null ||
       quantity == null ||
       quantity <= 0 ||
+      multiplier == null ||
+      multiplier <= 0 ||
       (draft.stop.trim() !== "" && stop == null)
     ) {
       return null;
@@ -170,6 +203,7 @@ export function TradeDialog({
       entry,
       exit,
       quantity,
+      multiplier,
       fees,
       stop,
     };
@@ -180,11 +214,30 @@ export function TradeDialog({
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
+  function changeMarket(market: Market) {
+    setDraft((current) => ({
+      ...current,
+      market,
+      multiplier: String(defaultMultiplier(market, current.symbol)),
+    }));
+  }
+
+  function suggestFuturesMultiplier() {
+    setDraft((current) => {
+      if (current.market !== "futures" || !current.symbol.trim()) return current;
+      return {
+        ...current,
+        multiplier: String(defaultMultiplier("futures", current.symbol)),
+      };
+    });
+  }
+
   function save() {
     const symbol = draft.symbol.trim().toUpperCase();
     const entry = num(draft.entry);
     const exit = num(draft.exit);
     const quantity = num(draft.quantity);
+    const multiplier = num(draft.multiplier);
     const fees = num(draft.fees) ?? 0;
     const stop = draft.stop.trim() ? num(draft.stop) : null;
     const openedAt = fromDatetimeLocal(draft.openedAt);
@@ -193,8 +246,20 @@ export function TradeDialog({
       setError("Symbol, entry, exit, and size are required.");
       return;
     }
+    if (multiplier == null || multiplier <= 0) {
+      setError("Multiplier has to be above zero.");
+      return;
+    }
     if (draft.stop.trim() && stop == null) {
       setError("Stop has to be a number, or left blank.");
+      return;
+    }
+    if (stop != null && draft.side === "long" && stop >= entry) {
+      setError("A long stop has to sit below entry.");
+      return;
+    }
+    if (stop != null && draft.side === "short" && stop <= entry) {
+      setError("A short stop has to sit above entry.");
       return;
     }
     if (fees < 0 || !Number.isFinite(fees)) {
@@ -220,6 +285,7 @@ export function TradeDialog({
       entry,
       exit,
       quantity,
+      multiplier,
       stop,
       fees,
       setup: draft.setup.trim(),
@@ -237,7 +303,7 @@ export function TradeDialog({
       open={open}
       onOpenChange={onOpenChange}
       title={trade ? trade.symbol : "Log a trade"}
-      description="Closed trades only. Size is shares, units, or dollars per point — one ES contract is 50."
+      description="Closed trades only. Size is shares, units, or contracts; multiplier is dollars per point per unit."
     >
       <form
         className="grid gap-4"
@@ -258,6 +324,7 @@ export function TradeDialog({
               id="symbol"
               value={draft.symbol}
               onChange={(event) => set("symbol", event.target.value)}
+              onBlur={suggestFuturesMultiplier}
               autoComplete="off"
               placeholder="NVDA"
             />
@@ -267,7 +334,7 @@ export function TradeDialog({
             <SelectField
               id="market"
               value={draft.market}
-              onChange={(event) => set("market", event.target.value as Market)}
+              onChange={(event) => changeMarket(event.target.value as Market)}
             >
               {MARKETS.map((market) => (
                 <option key={market} value={market}>
@@ -333,6 +400,16 @@ export function TradeDialog({
               value={draft.quantity}
               onChange={(event) => set("quantity", event.target.value)}
             />
+          </div>
+          <div>
+            <FieldLabel htmlFor="multiplier">Multiplier</FieldLabel>
+            <TextField
+              id="multiplier"
+              inputMode="decimal"
+              value={draft.multiplier}
+              onChange={(event) => set("multiplier", event.target.value)}
+            />
+            <p className="mt-1 text-sm text-subtle">$ per point. Stocks 1 · Options 100 · ES 50.</p>
           </div>
           <div>
             <FieldLabel htmlFor="stop">Stop</FieldLabel>
@@ -422,7 +499,7 @@ export function TradeDialog({
               <span className="ml-3 text-base text-muted">{formatR(preview.r)}</span>
             </p>
           ) : (
-            <p className="mt-1 text-sm text-subtle">Enter prices and size to preview P&L.</p>
+            <p className="mt-1 text-sm text-subtle">Enter prices, size, and multiplier to preview P&L.</p>
           )}
         </div>
 

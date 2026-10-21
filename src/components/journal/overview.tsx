@@ -1,4 +1,3 @@
-import { EquityChart } from "@/components/journal/equity-chart";
 import { Button } from "@/components/ui/button";
 import { buildEquity, journalStats, planSplit, tradePnl, tradeR } from "@/lib/journal/calc";
 import {
@@ -12,6 +11,11 @@ import {
   todayKey,
 } from "@/lib/journal/format";
 import type { Rule, Trade } from "@/lib/journal/types";
+import { Suspense, lazy } from "react";
+
+const EquityChart = lazy(() =>
+  import("@/components/journal/equity-chart").then((module) => ({ default: module.EquityChart })),
+);
 
 function Stat({ label, value, hint }: { label: string; value: string; hint: string }) {
   return (
@@ -106,8 +110,35 @@ export function Overview({
         />
       </div>
 
+      <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Stat label="Avg R" value={formatR(stats.avgR)} hint="Trades with a stop" />
+        <Stat
+          label="Avg win"
+          value={stats.avgWin == null ? "—" : formatMoney(stats.avgWin)}
+          hint={`${stats.wins} winners`}
+        />
+        <Stat
+          label="Avg loss"
+          value={stats.avgLoss == null ? "—" : formatMoney(stats.avgLoss)}
+          hint={`${stats.losses} losers${stats.scratches ? ` · ${stats.scratches} flat` : ""}`}
+        />
+        <Stat
+          label="Gross profit"
+          value={formatMoney(stats.grossProfit)}
+          hint={`Gross loss ${formatMoney(stats.grossLoss)}`}
+        />
+      </div>
+
       <div className="mt-3">
-        <EquityChart points={equity} />
+        <Suspense
+          fallback={
+            <div className="flex h-64 items-center justify-center rounded-xl border border-border bg-card px-6 text-center text-sm text-muted md:h-72">
+              Drawing the equity curve…
+            </div>
+          }
+        >
+          <EquityChart points={equity} />
+        </Suspense>
       </div>
 
       <div className="mt-3 grid gap-3 lg:grid-cols-5">

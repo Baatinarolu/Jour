@@ -56,6 +56,7 @@ function ChartInner({ points }: { points: EquityPoint[] }) {
         <Area
           type="monotone"
           dataKey="equity"
+          isAnimationActive={false}
           baseValue={domain[0]}
           stroke="var(--color-accent)"
           strokeWidth={1.5}

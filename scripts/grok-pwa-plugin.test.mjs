@@ -21,6 +21,12 @@ import { renderInstallPage } from "./grok-pwa-plugin.mjs";
 
 const TEMPLATE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
+// Hermetic default workspace: calls that omit `cwd`/`site` must not read the
+// checked-out app's src/lib/og/site.json or public/og.jpg via process.cwd().
+// Tests that exercise on-disk identity pass an explicit temp root.
+const EMPTY_WORKSPACE = mkdtempSync(join(tmpdir(), "grok-pwa-test-empty-"));
+process.chdir(EMPTY_WORKSPACE);
+
 test("injects before </head>", () => {
   const out = injectGrokPwaHead("<html><head><title>x</title></head><body></body></html>");
   assert.match(out, /rel="manifest"/);

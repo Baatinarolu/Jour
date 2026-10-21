@@ -1,5 +1,4 @@
 import { Overview } from "@/components/journal/overview";
-import { ReviewView } from "@/components/journal/review-view";
 import { RulesView } from "@/components/journal/rules-view";
 import { SettingsDialog } from "@/components/journal/settings-dialog";
 import { TradeDialog } from "@/components/journal/trade-dialog";
@@ -9,7 +8,11 @@ import { useHydrateJournal, useJournal } from "@/lib/journal/store";
 import type { JournalView, Trade, TradeQuery } from "@/lib/journal/types";
 import { cn } from "@/lib/utils";
 import { BookOpen, LayoutDashboard, List, Plus, Settings, SquareChartGantt } from "lucide-react";
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
+
+const ReviewView = lazy(() =>
+  import("@/components/journal/review-view").then((module) => ({ default: module.ReviewView })),
+);
 
 const NAV: { id: JournalView; label: string; icon: typeof List }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -46,6 +49,7 @@ export function JournalApp() {
   const clearTrades = useJournal((s) => s.clearTrades);
   const dismissSample = useJournal((s) => s.dismissSample);
   const replaceAll = useJournal((s) => s.replaceAll);
+  const importTrades = useJournal((s) => s.importTrades);
 
   const [view, setView] = useState<JournalView>("overview");
   const [editing, setEditing] = useState<Trade | null | undefined>(undefined);
@@ -115,6 +119,7 @@ export function JournalApp() {
                 type="button"
                 className="press inline-flex size-11 items-center justify-center rounded-sm text-muted"
                 aria-label="Settings"
+                disabled={!ready}
                 onClick={() => setSettingsOpen(true)}
               >
                 <Settings className="size-4" />
@@ -123,6 +128,7 @@ export function JournalApp() {
                 type="button"
                 className="press inline-flex size-11 items-center justify-center rounded-sm bg-accent text-accent-foreground"
                 aria-label="Log a trade"
+                disabled={!ready}
                 onClick={() => setEditing(null)}
               >
                 <Plus className="size-4" />
@@ -190,13 +196,15 @@ export function JournalApp() {
                 <TradesView trades={trades} query={query} onQuery={setQuery} onEdit={setEditing} />
               ) : null}
               {view === "review" ? (
-                <ReviewView
-                  trades={trades}
-                  onOpenDay={(day) => {
-                    setQuery({ ...query, day, result: "all", q: "" });
-                    setView("trades");
-                  }}
-                />
+                <Suspense fallback={<p className="text-sm text-muted">Loading review…</p>}>
+                  <ReviewView
+                    trades={trades}
+                    onOpenDay={(day) => {
+                      setQuery({ ...query, day, result: "all", q: "" });
+                      setView("trades");
+                    }}
+                  />
+                </Suspense>
               ) : null}
               {view === "rules" ? (
                 <RulesView
@@ -231,7 +239,7 @@ export function JournalApp() {
         onOpenChange={setSettingsOpen}
         startingBalance={startingBalance}
         backup={{
-          version: 1,
+          version: 2,
           startingBalance,
           trades,
           rules,
@@ -240,6 +248,7 @@ export function JournalApp() {
         }}
         onBalance={setStartingBalance}
         onReplace={replaceAll}
+        onImportCsv={importTrades}
         onClear={clearTrades}
         onSample={loadSample}
       />

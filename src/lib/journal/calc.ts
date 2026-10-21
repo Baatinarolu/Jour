@@ -1,19 +1,30 @@
 import { format } from "date-fns";
-import { dayKey, moneyRound } from "./format";
-import type { Trade } from "./types";
+import { dayKey, moneyRound } from "./format.ts";
+import type { Checks, Rule, Trade } from "./types.ts";
 
-export type TradeCore = Pick<Trade, "side" | "entry" | "exit" | "quantity" | "fees" | "stop">;
+export type TradeCore = Omit<
+  Pick<Trade, "side" | "entry" | "exit" | "quantity" | "multiplier" | "fees" | "stop">,
+  "multiplier"
+> & { multiplier?: number };
+
+/** Legacy trades (pre-multiplier localStorage/backups) priced size in dollars per point. */
+export function multiplierOf(t: TradeCore): number {
+  return t.multiplier != null && Number.isFinite(t.multiplier) && t.multiplier > 0 ? t.multiplier : 1;
+}
 
 export function tradePnl(t: TradeCore): number {
   const diff = t.side === "long" ? t.exit - t.entry : t.entry - t.exit;
-  return moneyRound(diff * t.quantity - t.fees);
+  return moneyRound(diff * t.quantity * multiplierOf(t) - t.fees);
 }
 
 export function tradeRisk(t: TradeCore): number | null {
   if (t.stop == null || !Number.isFinite(t.stop)) return null;
+  // A stop on the profit side is a data error, not risk: no R.
+  if (t.side === "long" && t.stop >= t.entry) return null;
+  if (t.side === "short" && t.stop <= t.entry) return null;
   const dist = Math.abs(t.entry - t.stop);
   if (dist === 0) return null;
-  return moneyRound(dist * t.quantity);
+  return moneyRound(dist * t.quantity * multiplierOf(t));
 }
 
 export function tradeR(t: TradeCore): number | null {
@@ -128,12 +139,12 @@ export function journalStats(trades: Trade[], startingBalance: number): JournalS
   const curve = buildEquity(sorted, startingBalance);
   let peak = moneyRound(startingBalance);
   let maxDrawdown = 0;
-  let maxDrawdownPct = 0;
+  let maxDrawdownPct: number | null = null;
   for (const point of curve) {
     peak = Math.max(peak, point.equity);
     const dd = moneyRound(peak - point.equity);
     if (dd > maxDrawdown) maxDrawdown = dd;
-    if (peak > 0) maxDrawdownPct = Math.max(maxDrawdownPct, dd / peak);
+    if (peak > 0) maxDrawdownPct = Math.max(maxDrawdownPct ?? 0, dd / peak);
   }
 
   let streak: Streak = { kind: "none", count: 0 };
@@ -162,7 +173,7 @@ export function journalStats(trades: Trade[], startingBalance: number): JournalS
     avgR: rCount ? rSum / rCount : null,
     payoff: avgWin != null && avgLoss != null && avgLoss !== 0 ? avgWin / Math.abs(avgLoss) : null,
     maxDrawdown,
-    maxDrawdownPct: curve.length ? maxDrawdownPct : null,
+    maxDrawdownPct,
     streak,
     firstAt: sorted[0]?.closedAt ?? null,
     lastAt: sorted[sorted.length - 1]?.closedAt ?? null,
@@ -177,6 +188,27 @@ export type GroupStat = {
   winRate: number | null;
 };
 
+function summarizeGroup(key: string, list: readonly Trade[]): GroupStat {
+  let net = 0;
+  let wins = 0;
+  let decisive = 0;
+  for (const t of list) {
+    const pnl = tradePnl(t);
+    net += pnl;
+    if (pnl > 0) {
+      wins += 1;
+      decisive += 1;
+    } else if (pnl < 0) decisive += 1;
+  }
+  return {
+    key,
+    net: moneyRound(net),
+    count: list.length,
+    wins,
+    winRate: decisive ? wins / decisive : null,
+  };
+}
+
 export function groupTrades(trades: Trade[], keyOf: (t: Trade) => string): GroupStat[] {
   const map = new Map<string, Trade[]>();
   for (const t of trades) {
@@ -185,26 +217,59 @@ export function groupTrades(trades: Trade[], keyOf: (t: Trade) => string): Group
     if (list) list.push(t);
     else map.set(key, [t]);
   }
-  return [...map.entries()].map(([key, list]) => {
-    let net = 0;
-    let wins = 0;
-    let decisive = 0;
-    for (const t of list) {
-      const pnl = tradePnl(t);
-      net += pnl;
-      if (pnl > 0) {
-        wins += 1;
-        decisive += 1;
-      } else if (pnl < 0) decisive += 1;
+  return [...map.entries()].map(([key, list]) => summarizeGroup(key, list));
+}
+
+/**
+ * One row per tag. A trade counts (in full) under every tag it carries,
+ * so tag totals intentionally do not sum to the journal total.
+ */
+export function tagGroups(trades: Trade[]): GroupStat[] {
+  const map = new Map<string, Trade[]>();
+  for (const trade of trades) {
+    const tags = new Set(trade.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean));
+    for (const tag of tags) {
+      const list = map.get(tag);
+      if (list) list.push(trade);
+      else map.set(tag, [trade]);
     }
-    return {
-      key,
-      net: moneyRound(net),
-      count: list.length,
-      wins,
-      winRate: decisive ? wins / decisive : null,
-    };
-  });
+  }
+  return [...map.entries()]
+    .map(([key, list]) => summarizeGroup(key, list))
+    .sort((a, b) => a.net - b.net);
+}
+
+export type RuleHistoryDay = {
+  date: string;
+  honored: number;
+  total: number;
+  ratio: number | null;
+};
+
+/** Daily rule adherence for the trailing `days`, oldest first, ending today. */
+export function ruleHistory(
+  checks: Checks,
+  rules: readonly Rule[],
+  days = 14,
+  today: Date = new Date(),
+): RuleHistoryDay[] {
+  const ruleIds = new Set(rules.map((rule) => rule.id));
+  const end = new Date(today);
+  end.setHours(12, 0, 0, 0);
+  const result: RuleHistoryDay[] = [];
+  for (let offset = days - 1; offset >= 0; offset -= 1) {
+    const date = new Date(end);
+    date.setDate(end.getDate() - offset);
+    const key = format(date, "yyyy-MM-dd");
+    const honored = (checks[key] ?? []).filter((id) => ruleIds.has(id)).length;
+    result.push({
+      date: key,
+      honored,
+      total: rules.length,
+      ratio: rules.length ? honored / rules.length : null,
+    });
+  }
+  return result;
 }
 
 export function planSplit(trades: Trade[]): { on: GroupStat; off: GroupStat } {

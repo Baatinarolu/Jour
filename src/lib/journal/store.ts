@@ -23,6 +23,7 @@ type JournalState = {
   clearTrades: () => void;
   dismissSample: () => void;
   replaceAll: (data: JournalBackup) => void;
+  importTrades: (incoming: Trade[]) => void;
 };
 
 export const useJournal = create<JournalState>()(
@@ -36,6 +37,20 @@ export const useJournal = create<JournalState>()(
       sampleBanner: false,
       addTrade: (trade) =>
         set((s) => ({ trades: [trade, ...s.trades], sampleBanner: false })),
+      importTrades: (incoming) =>
+        set((s) => {
+          const seen = new Set(s.trades.map((trade) => trade.id));
+          const merged = incoming.map((trade) => {
+            if (!seen.has(trade.id)) {
+              seen.add(trade.id);
+              return trade;
+            }
+            const fresh = { ...trade, id: crypto.randomUUID() };
+            seen.add(fresh.id);
+            return fresh;
+          });
+          return { trades: [...merged, ...s.trades], sampleBanner: false, initialized: true };
+        }),
       updateTrade: (trade) =>
         set((s) => ({
           trades: s.trades.map((item) => (item.id === trade.id ? trade : item)),
@@ -98,6 +113,21 @@ export const useJournal = create<JournalState>()(
     }),
     {
       name: "folio-journal-v1",
+      version: 1,
+      migrate: (persistedState, version) => {
+        if (version >= 1) return persistedState as JournalState;
+        const state = (persistedState ?? {}) as Partial<JournalState> & {
+          trades?: Array<Trade & { multiplier?: number }>;
+        };
+        return {
+          ...state,
+          trades: (state.trades ?? []).map((trade) => ({
+            ...trade,
+            multiplier:
+              typeof trade.multiplier === "number" && trade.multiplier > 0 ? trade.multiplier : 1,
+          })),
+        } as unknown as JournalState;
+      },
       skipHydration: true,
       storage: createJSONStorage(() => localStorage),
       partialize: (s) => ({

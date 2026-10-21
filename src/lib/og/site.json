@@ -1,4 +1,8 @@
 {
   "title": "Folio",
+  "description": "A private trading journal for closed trades, equity, R, and process — stored only in your browser.",
+  "type": "website",
+  "card": "custom",
+  "image": "/og.jpg",
   "color": "0C0D10"
 }

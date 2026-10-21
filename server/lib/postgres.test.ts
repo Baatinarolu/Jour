@@ -24,6 +24,7 @@ before(async () => {
   const pool = new pgModule.Pool({ connectionString: url });
   await pool.query("DROP TABLE IF EXISTS santandc_journals");
   await pool.query("DROP TABLE IF EXISTS santandc_users");
+  await pool.query("DROP TABLE IF EXISTS santandc_meta");
   await pool.end();
 
   store = await import("./postgres-store.ts");
@@ -164,6 +165,13 @@ database("postgres store: deletion semantics match the other drivers", { skip: !
   await store.saveJournal(other.id, makeBackup(2));
   await store.saveJournal(other.id, { ...makeBackup(0), updatedAt: "2026-01-02T00:00:00.000Z" });
   assert.equal((await store.getJournal(other.id))?.backup.trades.length, 2);
+});
+
+database("postgres store: managed auth secret is stable, first candidate wins", { skip: !enabled }, async () => {
+  const first = await store.getOrCreateManagedAuthSecret("candidate-one-at-least-32-chars-long");
+  assert.equal(first, "candidate-one-at-least-32-chars-long");
+  const second = await store.getOrCreateManagedAuthSecret("candidate-two-at-least-32-chars-long");
+  assert.equal(second, first);
 });
 
 database("postgres store: force push replaces", { skip: !enabled }, async () => {

@@ -9,7 +9,7 @@ export default defineEventHandler(async (event) => {
   }
   // Check config before any DB write: a misconfigured server must not create
   // an account it then cannot sign in (the old 500-after-create trap).
-  assertAuthConfigured();
+  await assertAuthConfigured();
 
   const body = await readBody<unknown>(event);
   if (!body || typeof body !== "object" || !("email" in body) || !("password" in body)

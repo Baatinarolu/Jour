@@ -246,6 +246,8 @@ export type ServerHealth = {
   };
   accounts?: number;
   authSecretSet?: boolean;
+  authReady?: boolean;
+  authSource?: "env" | "managed" | "dev" | null;
   hint?: string;
 };
 

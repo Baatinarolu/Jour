@@ -137,11 +137,12 @@ export function CloudSyncPanel() {
   const ephemeral = health?.storage?.persistent === false;
   const healthUnknown = healthState === "unreachable";
   const configuredButBroken = health?.storage?.persistent === true && health?.storage?.probe?.ok === false;
-  // On a real deployment (Vercel / production) a missing AUTH_SECRET makes
-  // sign-in fail outright, so warn before the user submits the form.
-  // Local dev works without one (ephemeral dev key), so don't nag there.
+  // Warn before form submit when the server says sign-in cannot work
+  // (no AUTH_SECRET and no durable database to hold a managed secret).
+  // Older servers lack authReady, so fall back to authSecretSet there.
+  // Local dev always works (ephemeral dev key), so don't nag there.
   const authNotConfigured =
-    health?.authSecretSet === false && (health?.env === "vercel" || health?.env === "production");
+    (health?.authReady ?? health?.authSecretSet) === false && (health?.env === "vercel" || health?.env === "production");
 
   const authBanner = authNotConfigured ? (
     <div className="mt-4 flex items-start gap-2 rounded-sm border border-down/40 bg-down/5 p-3">
@@ -149,10 +150,12 @@ export function CloudSyncPanel() {
       <div className="min-w-0">
         <p className="text-xs font-medium text-down">Sign-in is not configured on this server</p>
         <p className="mt-1 text-xs text-muted">
-          <span className="font-mono">AUTH_SECRET</span> is missing (or still the example placeholder), so creating an account or
-          signing in will fail. Whoever runs this deployment needs to set <span className="font-mono">AUTH_SECRET</span> to a random
-          string of 32+ characters (for example the output of <span className="font-mono">openssl rand -hex 32</span>) under Vercel →
-          Settings → Environment Variables, then redeploy. Your journal on this device keeps working offline.
+          This deployment has no usable <span className="font-mono">AUTH_SECRET</span> and no durable database to keep a managed
+          sign-in secret in, so creating an account or signing in will fail. Whoever runs this deployment needs to do one of these,
+          then redeploy: set <span className="font-mono">AUTH_SECRET</span> to a random string of 32+ characters (for example the
+          output of <span className="font-mono">openssl rand -hex 32</span>) under Vercel → Settings → Environment Variables — or
+          attach a Neon database (Vercel → Storage → Create Database → Neon) and the server will generate and store its own secret.
+          Your journal on this device keeps working offline.
         </p>
         <Button variant="ghost" size="sm" className="mt-2" onClick={() => void refreshHealth()}>
           <RefreshCw className="size-3.5" /> Check again
@@ -207,7 +210,7 @@ export function CloudSyncPanel() {
           <ol className="mt-2 grid gap-1 text-xs text-muted">
             <li>1. Create a Neon database: Vercel → your project → <span className="font-medium">Storage</span> → <span className="font-medium">Create Database</span> → <span className="font-medium">Neon</span>, and connect it to the project (any Postgres or Upstash KV also works).</li>
             <li>2. Vercel then injects <span className="font-mono">DATABASE_URL</span> (or <span className="font-mono">KV_REST_API_URL</span>) automatically — no code change.</li>
-            <li>3. Add an <span className="font-mono">AUTH_SECRET</span> env var (32+ random characters, e.g. <span className="font-mono">openssl rand -hex 32</span>) — sign-in cannot work without it.</li>
+            <li>3. Optional: add an <span className="font-mono">AUTH_SECRET</span> env var (32+ random characters). Once a database is attached the server can generate and store its own sign-in secret in it; setting one explicitly just keeps rotation under your control.</li>
             <li>4. Redeploy. This panel will say <span className="font-medium">Storage: persistent</span>.</li>
           </ol>
         ) : null}

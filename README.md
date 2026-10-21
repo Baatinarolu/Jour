@@ -70,7 +70,7 @@ Out of the box it is local-only (no account, no cloud). When you need multi-devi
   2. **Redis** — Vercel KV or Upstash (`KV_REST_API_*` / `UPSTASH_REDIS_REST_*`). Journals are chunked so screenshot-heavy backups stay under request limits.
   3. **Files** — `server/.data` locally, `/tmp/santandc` on Vercel. `/tmp` is wiped on redeploy and cold start, so accounts created there disappear. This is the fallback only.
   - Open `/api/health` on any deployment to see exactly which driver is active. The Cloud sync panel shows the same status, with a warning when storage is ephemeral.
-  - Set `AUTH_SECRET` (long random, e.g. `openssl rand -hex 32`) so JWTs stay valid across redeploys. See `.env.example`.
+  - Sign-in secret: set `AUTH_SECRET` (long random, e.g. `openssl rand -hex 32`) to control it yourself, or leave it unset — with a Postgres/Redis store attached the server generates a random secret once and stores it in the database (`santandc_meta`), so sessions still survive redeploys. Setting/changing `AUTH_SECRET` later signs everyone out once. See `.env.example`.
 - Deletions sync: erasing/clearing locally propagates to the cloud (the push carries `lastSyncedAt`, and entities that existed at the last sync but are now missing are treated as deleted). A brand-new device with an empty journal does *not* wipe the cloud. **Clear cloud (force push local)** in Settings replaces the cloud copy with this device's journal.
 - You can stay local forever or toggle cloud per device: local data is preserved on log out; signing in again merges.
 
@@ -128,7 +128,7 @@ npm run build
 2. In Vercel, import `Baatinarolu/Jour` and deploy. For local-only use, no env vars are required.
 3. Cloud sync in production needs durable storage — do this once, it takes a couple of minutes:
    1. Vercel dashboard → your project → **Storage** → **Create Database** → **Neon**, and connect it to the project (any Postgres or Upstash Redis also works). Vercel injects `DATABASE_URL` (Neon) or `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Redis) automatically.
-   2. Add `AUTH_SECRET` — a long random string (`openssl rand -hex 32`). Sign-in refuses to work without it (the API returns an explanatory 503, and the Cloud sync panel warns you).
+   2. Nothing else is required: with the database attached, the server generates and stores its own sign-in secret on first use. Optionally add `AUTH_SECRET` (long random, `openssl rand -hex 32`) if you prefer to control it via env vars.
    3. Redeploy. Visit `/api/health`; it should report `"driver": "neon-postgres"` and `"persistent": true` with `"probe": { "ok": true }`, plus `"authSecretSet": true`.
    - Already have a Neon project? Copy its connection string (Neon console → Connect; pooled endpoint is fine) into `DATABASE_URL`. Using Supabase instead? Its pooled string in `POSTGRES_URL` (port `6543`, `sslmode=require`) works unchanged through `pg`. Switching providers later: just attach the new database and redeploy — account records don't move, but journals are local-first, so signing up again with the same email re-uploads and merges each device's journal.
    - Without a Redis store, the app still runs and cloud sync still works **within** a deployment, but Vercel's `/tmp` is wiped on redeploy/cold start, so accounts vanish. The Settings panel warns about this and the health endpoint explains it.

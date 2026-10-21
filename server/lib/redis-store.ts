@@ -90,6 +90,22 @@ export async function saveJournal(
   return record;
 }
 
+const AUTH_SECRET_KEY = "santandc:meta:auth_secret";
+
+/**
+ * Return the stored managed auth secret, atomically storing `candidate`
+ * if none exists yet (SET NX). Concurrent first boots converge on one value.
+ */
+export async function getOrCreateManagedAuthSecret(candidate: string): Promise<string> {
+  const cfg = redisConfig();
+  if (!cfg) throw new Error("Redis is not configured");
+  const won = await redisCommand(cfg, ["SET", AUTH_SECRET_KEY, candidate, "NX"]);
+  if (won === "OK") return candidate;
+  const existing = await redisCommand(cfg, ["GET", AUTH_SECRET_KEY]);
+  if (typeof existing !== "string" || !existing) throw new Error("Managed auth secret could not be stored");
+  return existing;
+}
+
 export async function redisSelfTest(): Promise<{ ok: boolean; detail: string }> {
   if (!isRedisConfigured()) return { ok: false, detail: "No Redis store configured." };
   try {

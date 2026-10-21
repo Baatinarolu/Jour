@@ -7,19 +7,19 @@
 // Keep statusMessage text ASCII-only: Node rejects non-latin1 status text.
 
 import { createError } from "h3";
-import { AuthConfigError, createToken, getAuthConfigError } from "./auth.ts";
+import { AuthConfigError, createToken, getAuthReadiness } from "./auth.ts";
 
 export const AUTH_CONFIG_MESSAGE =
-  "Sign-in is not configured on this server yet: set AUTH_SECRET (32+ random characters) in the deployment environment variables, then redeploy. See /api/health for details.";
+  "Sign-in is not configured on this server yet: set AUTH_SECRET (32+ random characters) or attach a durable database (Neon) in the deployment settings, then redeploy. See /api/health for details.";
 
 export const STORAGE_MESSAGE =
   "Account storage is unavailable on this server right now. See /api/health for the storage status, then try again.";
 
 /** Fail fast with an actionable 503 before doing any auth work (or DB writes). */
-export function assertAuthConfigured(): void {
-  const problem = getAuthConfigError();
-  if (problem) {
-    console.error(`[auth] sign-in blocked: ${problem}`);
+export async function assertAuthConfigured(): Promise<void> {
+  const readiness = await getAuthReadiness();
+  if (!readiness.ready) {
+    console.error(`[auth] sign-in blocked: ${readiness.problem}`);
     throw createError({ statusCode: 503, statusMessage: AUTH_CONFIG_MESSAGE });
   }
 }

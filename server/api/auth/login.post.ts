@@ -8,7 +8,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 405, statusMessage: "Method not allowed" });
   }
   // Misconfigured deployment (e.g. no AUTH_SECRET): say so (503), don't 500.
-  assertAuthConfigured();
+  await assertAuthConfigured();
 
   const body = await readBody<unknown>(event);
   if (!body || typeof body !== "object" || !("email" in body) || !("password" in body)

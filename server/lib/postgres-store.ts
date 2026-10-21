@@ -174,6 +174,14 @@ async function ensureSchema(run: QueryFn): Promise<void> {
         [],
       );
       await run(`CREATE INDEX IF NOT EXISTS santandc_journals_updated_idx ON santandc_journals (updated_at)`, []);
+      await run(
+        `CREATE TABLE IF NOT EXISTS santandc_meta (
+           key text PRIMARY KEY,
+           value text NOT NULL,
+           updated_at text NOT NULL
+         )`,
+        [],
+      );
     })().catch((err) => {
       // Let the next request retry instead of caching a failure forever.
       schemaReady = null;
@@ -285,6 +293,26 @@ export function createPostgresStore(run: QueryFn) {
 
     getJournal,
     saveJournal,
+
+    /**
+     * Return the stored managed auth secret, atomically storing `candidate`
+     * if none exists yet. Concurrent first boots converge on one value.
+     */
+    async getOrCreateManagedAuthSecret(candidate: string): Promise<string> {
+      await ready();
+      const inserted = await run(
+        `INSERT INTO santandc_meta (key, value, updated_at)
+         VALUES ('auth_secret', $1, $2)
+         ON CONFLICT (key) DO NOTHING
+         RETURNING value`,
+        [candidate, new Date().toISOString()],
+      );
+      if (inserted.rows[0]) return String(inserted.rows[0].value);
+      const existing = await run(`SELECT value FROM santandc_meta WHERE key = 'auth_secret' LIMIT 1`, []);
+      const value = existing.rows[0]?.value;
+      if (typeof value !== "string" || !value) throw new Error("Managed auth secret could not be stored");
+      return value;
+    },
   };
 }
 
@@ -308,6 +336,7 @@ export const createUser = store.createUser;
 export const listUsersCount = store.listUsersCount;
 export const getJournal = store.getJournal;
 export const saveJournal = store.saveJournal;
+export const getOrCreateManagedAuthSecret = store.getOrCreateManagedAuthSecret;
 
 /** Round-trip check used by /api/health. */
 export async function postgresSelfTest(): Promise<{ ok: boolean; detail: string }> {

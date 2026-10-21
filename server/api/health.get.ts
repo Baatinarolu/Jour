@@ -1,17 +1,20 @@
 import { defineEventHandler } from "h3";
-import { getAuthConfigError, hasEnvSecret } from "../lib/auth.ts";
+import { getAuthReadiness, hasEnvSecret } from "../lib/auth.ts";
 import { storageDiagnostics } from "../lib/db.ts";
 
 export default defineEventHandler(async () => {
   const storage = await storageDiagnostics();
-  const authProblem = getAuthConfigError();
+  const auth = await getAuthReadiness();
 
-  // List every blocker, auth first: without AUTH_SECRET, sign-in cannot work
-  // at all, so it must never be hidden behind a storage hint.
+  // List every blocker, auth first: when sign-in cannot work at all, it must
+  // never be hidden behind a storage hint.
   const problems: string[] = [];
-  if (authProblem) {
+  if (!auth.ready && auth.problem) {
+    const isMissing = auth.problem.startsWith("AUTH_SECRET is not set");
     problems.push(
-      `Sign-in is disabled: ${authProblem} Set AUTH_SECRET to a long random string (for example the output of "openssl rand -hex 32") in the deployment environment variables, then redeploy.`,
+      isMissing
+        ? `Sign-in is disabled: ${auth.problem}`
+        : `Sign-in is disabled: ${auth.problem} Fix AUTH_SECRET in the deployment environment variables (for example the output of "openssl rand -hex 32"), then redeploy.`,
     );
   }
   if (!storage.persistent) {
@@ -23,11 +26,13 @@ export default defineEventHandler(async () => {
   }
 
   return {
-    ok: storage.probe.ok && authProblem === null,
+    ok: storage.probe.ok && auth.ready,
     time: new Date().toISOString(),
     env: process.env.VERCEL ? "vercel" : process.env.NODE_ENV || "dev",
     storage,
     authSecretSet: hasEnvSecret(),
+    authReady: auth.ready,
+    authSource: auth.source,
     hint: problems.length > 0 ? problems.join(" ") : "Storage and auth are configured for persistence.",
   };
 });

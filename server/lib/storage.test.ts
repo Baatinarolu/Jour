@@ -217,3 +217,10 @@ test("force push replaces instead of merging", async () => {
   const after = await storage.getJournal(user.id);
   assert.equal(after?.backup.trades.length, 0);
 });
+
+test("managed auth secret: first candidate wins and is stable", async () => {
+  const first = await storage.getOrCreateManagedAuthSecret("candidate-one-at-least-32-chars-long");
+  assert.equal(first, "candidate-one-at-least-32-chars-long");
+  const second = await storage.getOrCreateManagedAuthSecret("candidate-two-at-least-32-chars-long");
+  assert.equal(second, first, "later candidates must not replace the stored secret");
+});

@@ -143,5 +143,18 @@ export async function saveJournal(
   return fileStore.saveJournal(userId, backup, opts);
 }
 
+/**
+ * Managed sign-in secret: durable drivers (Postgres/Redis) can hold a
+ * server-generated AUTH_SECRET so sign-in works with zero env config.
+ * The file driver returns null (local dev uses an ephemeral key; on Vercel
+ * its /tmp storage would not be shared between instances anyway).
+ */
+export async function getOrCreateManagedAuthSecret(candidate: string): Promise<string | null> {
+  const driver = getStorageDriver();
+  if (isPostgresDriver(driver)) return pgStore.getOrCreateManagedAuthSecret(candidate);
+  if (driver === "vercel-kv" || driver === "upstash-redis") return redisStore.getOrCreateManagedAuthSecret(candidate);
+  return null;
+}
+
 // Re-exported for tests and for drivers that share the merge implementation.
 export { mergeBackups } from "./db-file.ts";

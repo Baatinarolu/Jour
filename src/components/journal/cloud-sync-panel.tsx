@@ -1,9 +1,31 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { FieldLabel, TextField } from "@/components/ui/field";
-import { useSync, login, register, syncNow, fetchMe } from "@/lib/journal/sync";
+import {
+  useSync,
+  login,
+  register,
+  syncNow,
+  fetchMe,
+  checkHealth,
+  type ServerHealth,
+} from "@/lib/journal/sync";
 import { formatDistanceToNow } from "date-fns";
-import { Cloud, CloudOff, Loader2, LogOut, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Cloud,
+  CloudOff,
+  Loader2,
+  LogOut,
+  RefreshCw,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
+
+const LAST_EMAIL_KEY = "santandc-last-email";
+
+type HealthState = "checking" | "ok" | "unreachable";
 
 export function CloudSyncPanel() {
   const user = useSync((s) => s.user);
@@ -21,13 +43,39 @@ export function CloudSyncPanel() {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [health, setHealth] = useState<ServerHealth | null>(null);
+  const [healthState, setHealthState] = useState<HealthState>("checking");
+  const [showFix, setShowFix] = useState(false);
+
+  // Remember the last email so re-creating an account after a server wipe is one click.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(LAST_EMAIL_KEY);
+      if (saved) setEmail((current) => current || saved);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const refreshHealth = useCallback(async () => {
+    setHealthState("checking");
+    const result = await checkHealth();
+    setHealth(result);
+    setHealthState(result ? "ok" : "unreachable");
+  }, []);
+
+  useEffect(() => {
+    void refreshHealth();
+  }, [refreshHealth]);
 
   // Verify session on mount if token exists but user missing
   useEffect(() => {
     if (useSync.getState().token && !useSync.getState().user) {
       fetchMe().then((u) => {
         if (u) useSync.setState({ user: u });
-        else setStatus("error", "Session expired");
+        else if (useSync.getState().status !== "error") {
+          setStatus("error", "Session expired — sign in again. Your local journal is safe.");
+        }
       });
     }
   }, [setStatus]);
@@ -41,14 +89,28 @@ export function CloudSyncPanel() {
       const fn = mode === "login" ? login : register;
       const res = await fn(email.trim(), password);
       setUser(res.user, res.token);
+      try {
+        localStorage.setItem(LAST_EMAIL_KEY, res.user.email);
+      } catch {
+        /* ignore */
+      }
       setMsg(mode === "login" ? "Signed in — syncing…" : "Account created — syncing…");
       setStatus("syncing");
       await syncNow({ direction: "both" });
+      setHealthState("checking");
+      void refreshHealth();
       setMsg("Synced to cloud");
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
-      setMsg(m);
-      setStatus("error", m);
+      const accountMissing = /no longer exists|user not found/i.test(m);
+      if (accountMissing) {
+        setMode("register");
+        setStatus("error", m);
+        setMsg("Your account is gone from this server — create it again below to re-upload this journal.");
+      } else {
+        setMsg(m);
+        setStatus("error", m);
+      }
     } finally {
       setBusy(false);
     }
@@ -62,6 +124,8 @@ export function CloudSyncPanel() {
       await syncNow({ direction: "both" });
       setMsg("Synced");
       setStatus("synced");
+      setHealthState("checking");
+      void refreshHealth();
     } catch (err) {
       const m = err instanceof Error ? err.message : String(err);
       setMsg(m);
@@ -69,6 +133,59 @@ export function CloudSyncPanel() {
       setBusy(false);
     }
   }
+
+  const ephemeral = health?.storage?.persistent === false;
+  const healthUnknown = healthState === "unreachable";
+
+  const storageBanner = healthUnknown ? (
+    <div className="mt-4 flex items-start gap-2 rounded-sm border border-down/40 bg-down/5 p-3">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-down" />
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-down">Sync server not reachable</p>
+        <p className="mt-1 text-xs text-muted">
+          <span className="font-mono">/api/health</span> did not answer. If you’ve deployed to Vercel, make sure the deploy included the
+          server build (the <span className="font-mono">.vercel/output</span> folder produced by <span className="font-mono">npm run build</span>),
+          then reload.
+        </p>
+        <Button variant="ghost" size="sm" className="mt-2" onClick={() => void refreshHealth()}>
+          <RefreshCw className="size-3.5" /> Check again
+        </Button>
+      </div>
+    </div>
+  ) : ephemeral ? (
+    <div className="mt-4 flex items-start gap-2 rounded-sm border border-warn/40 bg-warn/5 p-3">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warn" />
+      <div className="min-w-0">
+        <p className="text-xs font-medium">This deployment forgets accounts on redeploy</p>
+        <p className="mt-1 text-xs text-muted">
+          The server is using ephemeral <span className="font-mono">/tmp</span> storage — Vercel wipes it on every deploy and cold start, which is
+          why your account “disappears”. Your journal on this device is safe; the copy in the cloud is not.
+        </p>
+        <button type="button" className="mt-2 text-xs font-medium text-accent underline-offset-2 hover:underline" onClick={() => setShowFix((v) => !v)}>
+          {showFix ? "Hide fix" : "How to make it permanent (2 minutes)"}
+        </button>
+        {showFix ? (
+          <ol className="mt-2 grid gap-1 text-xs text-muted">
+            <li>1. Vercel dashboard → your project → <span className="font-medium">Storage</span> → <span className="font-medium">Create Database</span> → KV / Upstash Redis (free tier is fine).</li>
+            <li>2. Attach it to the project — Vercel adds <span className="font-mono">KV_REST_API_URL</span> and <span className="font-mono">KV_REST_API_TOKEN</span> automatically.</li>
+            <li>3. Add an <span className="font-mono">AUTH_SECRET</span> env var (any 32+ character string) so sessions survive too.</li>
+            <li>4. Redeploy. This panel will say <span className="font-medium">Storage: persistent</span>.</li>
+          </ol>
+        ) : null}
+      </div>
+    </div>
+  ) : health ? (
+    <div className="mt-4 flex items-start gap-2 rounded-sm border border-up/30 bg-up/5 p-3">
+      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-up" />
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-up">Storage: persistent</p>
+        <p className="mt-1 text-xs text-muted">
+          {typeof health.accounts === "number" ? `${health.accounts} account${health.accounts === 1 ? "" : "s"} on this server · ` : ""}
+          {health.storage?.detail ?? health.storage?.driver} {health.authSecretSet === false ? " · AUTH_SECRET not set — sessions may expire on redeploy." : ""}
+        </p>
+      </div>
+    </div>
+  ) : null;
 
   if (!user) {
     return (
@@ -80,13 +197,16 @@ export function CloudSyncPanel() {
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-medium">Cloud sync — private backup across devices</h3>
             <p className="mt-1 text-sm text-muted">
-              Your journal stays local by default. Sign in to encrypt-sync trades, playbooks, daily entries and reviews. Same journal on phone + desktop; offline edits merge when you reconnect.
+              Your journal stays local by default. Sign in to sync trades, playbooks, daily entries and reviews. Same journal on phone + desktop;
+              offline edits merge when you reconnect.
             </p>
             <p className="mt-2 text-xs text-subtle">
-              Encrypted in transit (HTTPS). Stored per-account on your Vercel deployment. For teams needing Postgres-grade persistence, set <span className="font-mono">DATABASE_URL</span> — see README.
+              Encrypted in transit (HTTPS). Stored per-account on your own deployment.
             </p>
           </div>
         </div>
+
+        {storageBanner}
 
         <div className="mt-4 flex gap-2 rounded-sm bg-background p-1 text-sm">
           <button
@@ -187,6 +307,8 @@ export function CloudSyncPanel() {
         </Button>
       </div>
 
+      {storageBanner}
+
       {msg ? <p className="mt-3 text-sm text-muted">{msg}</p> : null}
       {error && status === "error" ? <p className="mt-2 text-sm text-down">{error}</p> : null}
 
@@ -203,16 +325,21 @@ export function CloudSyncPanel() {
           <Cloud className="size-4" />
           {autoSync ? "Auto-sync on" : "Auto-sync off"}
         </Button>
+        <Button variant="ghost" onClick={() => void refreshHealth()} disabled={healthState === "checking"}>
+          <ShieldCheck className="size-4" />
+          {healthState === "checking" ? "Checking…" : "Check server"}
+        </Button>
       </div>
 
       <p className="mt-3 text-xs text-subtle">
-        Edits merge by updated time — newer wins per trade/playbook/day so you don’t lose phone edits when desktop pushes. Deletions sync too: if you erase a trade locally after syncing, it’s removed in the cloud on next push. Screenshots count toward size; max backup ~10 MB.
+        Edits merge by updated time — newer wins per trade/playbook/day so you don’t lose phone edits when desktop pushes. Deletions sync too: if you
+        erase a trade locally after syncing, it’s removed in the cloud on next push. Screenshots count toward size; max backup ~10 MB.
       </p>
 
       <div className="mt-4 rounded-sm border border-border bg-background p-3">
         <p className="text-xs font-medium text-muted">Demo keeps coming back?</p>
         <p className="mt-1 text-xs text-subtle">
-          Clearing locally now correctly clears the cloud (fixed in this update). If demo still persists, use “Clear cloud” to force-replace cloud with your current local journal — handy if the old buggy merge left orphaned demo data.
+          Use “Clear cloud” to force-replace the cloud copy with your current local journal — handy if an earlier merge left orphaned demo data.
         </p>
         <Button
           variant="ghost"
@@ -220,7 +347,7 @@ export function CloudSyncPanel() {
           className="mt-2"
           disabled={busy || status === "syncing"}
           onClick={async () => {
-            if (!confirm("Replace cloud journal with your current local journal? Use this if demo data keeps reappearing after erase.")) return;
+            if (!confirm("Replace the cloud journal with your current local journal? Use this if demo data keeps reappearing after erase.")) return;
             setBusy(true);
             setMsg(null);
             setStatus("syncing");

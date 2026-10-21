@@ -20,12 +20,24 @@ export default defineEventHandler(async (event) => {
   if (!isValidPassword(password)) {
     throw createError({ statusCode: 400, statusMessage: "Password must be 8-128 characters" });
   }
-  if (getUserByEmail(email)) {
+  if (await getUserByEmail(email)) {
     throw createError({ statusCode: 409, statusMessage: "Email already registered" });
   }
 
   const passwordHash = await hashPassword(password);
-  const user = createUser(email, passwordHash);
+  let user;
+  try {
+    user = await createUser(email, passwordHash);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Could not create account";
+    console.error("[auth/register] createUser failed", err);
+    throw createError({
+      statusCode: message.toLowerCase().includes("already registered") ? 409 : 500,
+      statusMessage: message.toLowerCase().includes("already registered")
+        ? "Email already registered"
+        : `Could not create account: ${message}`,
+    });
+  }
   const token = await createToken({ sub: user.id, email: user.email });
 
   setResponseHeader(event, "Content-Type", "application/json");

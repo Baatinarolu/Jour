@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: "Invalid or expired token" });
   }
 
-  const user = getUserById(payload.sub);
+  const user = await getUserById(payload.sub);
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: "User not found" });
   }

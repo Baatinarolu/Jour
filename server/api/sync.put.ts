@@ -51,7 +51,7 @@ export default defineEventHandler(async (event) => {
   const payload = await verifyToken(token);
   if (!payload) throw createError({ statusCode: 401, statusMessage: "Invalid token" });
 
-  const user = getUserById(payload.sub);
+  const user = await getUserById(payload.sub);
   if (!user) throw createError({ statusCode: 401, statusMessage: "User not found" });
 
   const body = await readBody(event) as { backup?: unknown; lastSyncedAt?: string | null; force?: boolean } & Record<string, unknown>;
@@ -72,8 +72,18 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 413, statusMessage: "Backup too large (max 10MB). Remove screenshots or split." });
   }
 
-  const record = saveJournal(user.id, parsed.data as unknown as import("../../src/lib/journal/types.ts").JournalBackup, { lastSyncedAt, force });
-  const fresh = getJournal(user.id)!;
+  let record;
+  try {
+    record = await saveJournal(user.id, parsed.data as unknown as import("../../src/lib/journal/types.ts").JournalBackup, { lastSyncedAt, force });
+  } catch (err) {
+    console.error("[sync.put] save failed", err);
+    throw createError({
+      statusCode: 500,
+      statusMessage: `Could not save to cloud storage: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+  const fresh = await getJournal(user.id);
+  if (!fresh) throw createError({ statusCode: 500, statusMessage: "Failed to read back journal" });
 
   setResponseHeader(event, "Content-Type", "application/json");
   return { backup: fresh.backup, updatedAt: fresh.updatedAt, version: fresh.version, saved: record.updatedAt };

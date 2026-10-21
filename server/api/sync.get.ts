@@ -10,10 +10,10 @@ export default defineEventHandler(async (event) => {
   const payload = await verifyToken(token);
   if (!payload) throw createError({ statusCode: 401, statusMessage: "Invalid token" });
 
-  const user = getUserById(payload.sub);
+  const user = await getUserById(payload.sub);
   if (!user) throw createError({ statusCode: 401, statusMessage: "User not found" });
 
-  const record = getJournal(user.id);
+  const record = await getJournal(user.id);
   setResponseHeader(event, "Content-Type", "application/json");
   if (!record) {
     return { backup: null, updatedAt: null, version: 0 };

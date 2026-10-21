@@ -18,14 +18,18 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Invalid email" });
   }
 
-  const user = getUserByEmail(email);
+  const user = await getUserByEmail(email);
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: "Invalid email or password" });
+    throw createError({
+      statusCode: 401,
+      statusMessage:
+        "No account with this email on this server. If it worked before and disappeared, the deployment lost its storage on redeploy — create the account again; your journal on this device is not affected.",
+    });
   }
 
   const ok = await verifyPassword(password, user.passwordHash);
   if (!ok) {
-    throw createError({ statusCode: 401, statusMessage: "Invalid email or password" });
+    throw createError({ statusCode: 401, statusMessage: "Wrong password for this account" });
   }
 
   const token = await createToken({ sub: user.id, email: user.email });

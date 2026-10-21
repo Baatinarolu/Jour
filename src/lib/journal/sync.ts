@@ -36,13 +36,24 @@ export const useSync = create<SyncState>()(
       error: null,
       autoSync: true,
       setUser: (user, token) => {
+        const previous = useSync.getState().user;
+        // A different account must not inherit the old account's sync checkpoint,
+        // otherwise "deleted" entities from the previous account could be dropped.
+        const accountChanged = !!user && !!previous && previous.id !== user.id;
         if (typeof window !== "undefined") {
           if (token) localStorage.setItem(TOKEN_KEY, token);
           else localStorage.removeItem(TOKEN_KEY);
           if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
           else localStorage.removeItem(USER_KEY);
+          if (accountChanged) localStorage.removeItem(LAST_SYNC_KEY);
         }
-        set({ user, token, error: null, status: user ? "idle" : "idle" });
+        set({
+          user,
+          token,
+          error: null,
+          status: user ? "idle" : "idle",
+          ...(accountChanged ? { lastSyncedAt: null } : {}),
+        });
       },
       setStatus: (status, error = null) => set({ status, error }),
       setLastSyncedAt: (iso) => {
@@ -99,60 +110,185 @@ function authHeaders(): HeadersInit {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// --- API transport ---
+
+export type ApiErrorKind = "unauthorized" | "not-found" | "validation" | "server" | "network";
+
+export class SyncApiError extends Error {
+  status: number;
+  kind: ApiErrorKind;
+  constructor(message: string, status: number, kind: ApiErrorKind) {
+    super(message);
+    this.name = "SyncApiError";
+    this.status = status;
+    this.kind = kind;
+  }
+}
+
+async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, init);
+  } catch {
+    throw new SyncApiError("Can’t reach the sync server — check your connection.", 0, "network");
+  }
+
+  const raw = await res.text();
+  let data: Record<string, unknown> = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      // Non-JSON body = the route isn't served by the app (static host / stale deploy)
+      if (!res.ok) {
+        throw new SyncApiError(
+          res.status === 404
+            ? `Sync API not found (404) at ${path}. This deployment is probably serving only the frontend — redeploy with the server build so /api routes exist. Open /api/health to check.`
+            : `Sync server returned an unexpected response (${res.status}) from ${path}. Open /api/health to check.`,
+          res.status,
+          res.status === 404 ? "not-found" : "server",
+        );
+      }
+    }
+  }
+
+  if (!res.ok) {
+    const message =
+      (typeof data.statusMessage === "string" && data.statusMessage) ||
+      (typeof data.message === "string" && data.message) ||
+      `Request failed (${res.status})`;
+    let kind: ApiErrorKind = "server";
+    if (res.status === 401 || res.status === 403) kind = "unauthorized";
+    else if (res.status === 400 || res.status === 422) kind = "validation";
+    else if (res.status === 404) kind = "not-found";
+    throw new SyncApiError(message, res.status, kind);
+  }
+
+  return data as T;
+}
+
+/**
+ * Called when the server says our token is invalid or the account is gone.
+ * The usual cause on Vercel: the app was redeployed and its ephemeral /tmp
+ * storage was wiped, so the user record no longer exists.
+ */
+function handleSessionLost(reason: string) {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
+  useSync.setState({
+    user: null,
+    token: null,
+    status: "error",
+    error: reason,
+  });
+}
+
+function describeAuthFailure(err: SyncApiError): string {
+  const msg = err.message.toLowerCase();
+  if (msg.includes("user not found") || msg.includes("account")) {
+    return "This account no longer exists on the server. Server storage was reset (Vercel only keeps /tmp temporarily). Your local journal is safe — sign up again with the same email to re-upload it, or add Vercel KV to keep accounts permanently.";
+  }
+  if (msg.includes("expired")) {
+    return "Session expired — sign in again. Your local journal is untouched.";
+  }
+  return err.message;
+}
+
 // --- API helpers ---
 
 export async function register(email: string, password: string): Promise<{ token: string; user: SyncUser }> {
-  const res = await fetch("/api/auth/register", {
+  return apiRequest<{ token: string; user: SyncUser }>("/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { statusMessage?: string }).statusMessage || (data as { message?: string }).message || `Register failed (${res.status})`);
-  return data as { token: string; user: SyncUser };
 }
 
 export async function login(email: string, password: string): Promise<{ token: string; user: SyncUser }> {
-  const res = await fetch("/api/auth/login", {
+  return apiRequest<{ token: string; user: SyncUser }>("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { statusMessage?: string }).statusMessage || (data as { message?: string }).message || `Login failed (${res.status})`);
-  return data as { token: string; user: SyncUser };
 }
 
 export async function fetchMe(): Promise<SyncUser | null> {
   const headers = authHeaders() as Record<string, string>;
   if (!headers.Authorization) return null;
-  const res = await fetch("/api/auth/me", { headers });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { user: SyncUser };
-  return data.user ?? null;
+  try {
+    const data = await apiRequest<{ user: SyncUser }>("/api/auth/me", { headers });
+    return data.user ?? null;
+  } catch (err) {
+    if (err instanceof SyncApiError) {
+      if (err.kind === "unauthorized") {
+        handleSessionLost(describeAuthFailure(err));
+      } else {
+        // 404 / server / network: don't pretend the session expired — say what happened.
+        useSync.getState().setStatus("error", err.message);
+      }
+    }
+    return null;
+  }
+}
+
+export type ServerHealth = {
+  ok: boolean;
+  env?: string;
+  storage?: {
+    driver?: string;
+    persistent?: boolean;
+    detail?: string;
+    redis?: { ok?: boolean; detail?: string };
+  };
+  accounts?: number;
+  authSecretSet?: boolean;
+  hint?: string;
+};
+
+/** Ask the deployment which storage driver it uses, so the UI can warn before data is lost. */
+export async function checkHealth(): Promise<ServerHealth | null> {
+  try {
+    return await apiRequest<ServerHealth>("/api/health", { headers: { Accept: "application/json" } });
+  } catch {
+    return null;
+  }
 }
 
 export async function pullBackup(): Promise<{ backup: JournalBackup | null; updatedAt: string | null }> {
   const headers = authHeaders() as Record<string, string>;
-  if (!headers.Authorization) throw new Error("Not signed in");
-  const res = await fetch("/api/sync", { headers });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { statusMessage?: string }).statusMessage || `Pull failed (${res.status})`);
-  return data as { backup: JournalBackup | null; updatedAt: string | null };
+  if (!headers.Authorization) throw new SyncApiError("Not signed in", 401, "unauthorized");
+  try {
+    return await apiRequest<{ backup: JournalBackup | null; updatedAt: string | null }>("/api/sync", { headers });
+  } catch (err) {
+    if (err instanceof SyncApiError && err.kind === "unauthorized") {
+      const friendly = describeAuthFailure(err);
+      handleSessionLost(friendly);
+      throw new SyncApiError(friendly, err.status, err.kind);
+    }
+    throw err;
+  }
 }
 
 export async function pushBackup(backup: JournalBackup, opts: { force?: boolean } = {}): Promise<{ backup: JournalBackup; updatedAt: string }> {
   const headers = { ...(authHeaders() as Record<string, string>), "Content-Type": "application/json" } as HeadersInit;
-  if (!(headers as Record<string, string>).Authorization) throw new Error("Not signed in");
+  if (!(headers as Record<string, string>).Authorization) throw new SyncApiError("Not signed in", 401, "unauthorized");
   const lastSyncedAt = useSync.getState().lastSyncedAt;
-  const res = await fetch("/api/sync", {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({ backup, lastSyncedAt, force: opts.force ?? false }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as { statusMessage?: string }).statusMessage || `Push failed (${res.status})`);
-  return data as { backup: JournalBackup; updatedAt: string; version: number };
+  try {
+    return await apiRequest<{ backup: JournalBackup; updatedAt: string; version: number }>("/api/sync", {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ backup, lastSyncedAt, force: opts.force ?? false }),
+    });
+  } catch (err) {
+    if (err instanceof SyncApiError && err.kind === "unauthorized") {
+      const friendly = describeAuthFailure(err);
+      handleSessionLost(friendly);
+      throw new SyncApiError(friendly, err.status, err.kind);
+    }
+    throw err;
+  }
 }
 
 // --- Merge helper (client-side, mirrors server) ---
@@ -348,8 +484,8 @@ export async function syncNow(options: { direction?: "push" | "pull" | "both" } 
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    const isOffline = /fetch|network|Failed to fetch/i.test(msg);
-    useSync.getState().setStatus(isOffline ? "offline" : "error", msg);
+    const isNetwork = err instanceof SyncApiError ? err.kind === "network" : /fetch|network|Failed to fetch/i.test(msg);
+    useSync.getState().setStatus(isNetwork ? "offline" : "error", msg);
     throw err;
   }
 }
@@ -384,7 +520,10 @@ export function setupAutoSync() {
     // Verify token still valid, then sync
     fetchMe().then((user) => {
       if (!user) {
-        useSync.getState().setStatus("error", "Session expired — sign in again");
+        // fetchMe already set a specific message when the token/account is invalid
+        if (useSync.getState().status !== "error") {
+          useSync.getState().setStatus("error", "Session expired — sign in again. Your local journal is safe.");
+        }
         return;
       }
       syncNow({ direction: "both" }).catch(() => {});

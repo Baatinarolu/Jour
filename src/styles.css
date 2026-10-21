@@ -20,6 +20,7 @@
   --color-accent-foreground: #16171c;
   --color-up: #9ec3aa;
   --color-down: #e0a29b;
+  --color-warn: #d8bb88;
 
   --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 

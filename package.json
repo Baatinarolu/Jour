@@ -17,7 +17,7 @@
     "preview:restart": "node scripts/preview.mjs restart",
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
-    "test": "node --test scripts/grok-pwa-plugin.test.mjs scripts/preview.test.mjs && node --experimental-strip-types --test src/lib/journal/journal.test.ts src/lib/preview-path-prefix.test.ts",
+    "test": "node --test scripts/grok-pwa-plugin.test.mjs scripts/preview.test.mjs && node --experimental-strip-types --test src/lib/journal/journal.test.ts src/lib/preview-path-prefix.test.ts server/lib/storage.test.ts",
     "lint": "eslint .",
     "format": "prettier --write ."
   },

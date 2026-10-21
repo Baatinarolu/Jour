@@ -137,6 +137,29 @@ export function CloudSyncPanel() {
   const ephemeral = health?.storage?.persistent === false;
   const healthUnknown = healthState === "unreachable";
   const configuredButBroken = health?.storage?.persistent === true && health?.storage?.probe?.ok === false;
+  // On a real deployment (Vercel / production) a missing AUTH_SECRET makes
+  // sign-in fail outright, so warn before the user submits the form.
+  // Local dev works without one (ephemeral dev key), so don't nag there.
+  const authNotConfigured =
+    health?.authSecretSet === false && (health?.env === "vercel" || health?.env === "production");
+
+  const authBanner = authNotConfigured ? (
+    <div className="mt-4 flex items-start gap-2 rounded-sm border border-down/40 bg-down/5 p-3">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-down" />
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-down">Sign-in is not configured on this server</p>
+        <p className="mt-1 text-xs text-muted">
+          <span className="font-mono">AUTH_SECRET</span> is missing (or still the example placeholder), so creating an account or
+          signing in will fail. Whoever runs this deployment needs to set <span className="font-mono">AUTH_SECRET</span> to a random
+          string of 32+ characters (for example the output of <span className="font-mono">openssl rand -hex 32</span>) under Vercel →
+          Settings → Environment Variables, then redeploy. Your journal on this device keeps working offline.
+        </p>
+        <Button variant="ghost" size="sm" className="mt-2" onClick={() => void refreshHealth()}>
+          <RefreshCw className="size-3.5" /> Check again
+        </Button>
+      </div>
+    </div>
+  ) : null;
 
   const storageBanner = configuredButBroken ? (
     <div className="mt-4 flex items-start gap-2 rounded-sm border border-down/40 bg-down/5 p-3">
@@ -184,7 +207,7 @@ export function CloudSyncPanel() {
           <ol className="mt-2 grid gap-1 text-xs text-muted">
             <li>1. Connect a Postgres database: Vercel → your project → <span className="font-medium">Storage</span> → <span className="font-medium">Supabase</span> (or Upstash KV) and attach it.</li>
             <li>2. Vercel then injects <span className="font-mono">POSTGRES_URL</span> (or <span className="font-mono">KV_REST_API_URL</span>) automatically — no code change.</li>
-            <li>3. Add an <span className="font-mono">AUTH_SECRET</span> env var (any 32+ character string) so sessions survive too.</li>
+            <li>3. Add an <span className="font-mono">AUTH_SECRET</span> env var (32+ random characters, e.g. <span className="font-mono">openssl rand -hex 32</span>) — sign-in cannot work without it.</li>
             <li>4. Redeploy. This panel will say <span className="font-medium">Storage: persistent</span>.</li>
           </ol>
         ) : null}
@@ -199,7 +222,6 @@ export function CloudSyncPanel() {
           {typeof health.storage?.accounts === "number" ? `${health.storage.accounts} account${health.storage.accounts === 1 ? "" : "s"} on this server · ` : ""}
           {health.storage?.detail ?? health.storage?.driver}
           {health.storage?.probe?.detail ? ` · ${health.storage.probe.detail}` : ""}
-          {health.authSecretSet === false ? " · AUTH_SECRET not set — sessions may expire on redeploy." : ""}
         </p>
       </div>
     </div>
@@ -224,6 +246,7 @@ export function CloudSyncPanel() {
           </div>
         </div>
 
+        {authBanner}
         {storageBanner}
 
         <div className="mt-4 flex gap-2 rounded-sm bg-background p-1 text-sm">
@@ -325,6 +348,7 @@ export function CloudSyncPanel() {
         </Button>
       </div>
 
+      {authBanner}
       {storageBanner}
 
       {msg ? <p className="mt-3 text-sm text-muted">{msg}</p> : null}

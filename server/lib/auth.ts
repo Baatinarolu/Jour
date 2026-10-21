@@ -4,17 +4,58 @@ import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 const ALG = "HS256";
 const ISSUER = "santandc";
 const EXPIRY = "30d";
+const MIN_SECRET_LENGTH = 32;
+/** The literal value shipped in .env.example. Publicly known, so never valid in production. */
+const PLACEHOLDER_SECRET = "change-me-to-a-long-random-string-at-least-32-chars";
 const developmentKey = crypto.getRandomValues(new Uint8Array(32));
 
-function secretKey(): Uint8Array {
-  const secret = process.env.AUTH_SECRET || process.env.JWT_SECRET;
-  if (secret && secret.length >= 32) return new TextEncoder().encode(secret);
-  if (secret || process.env.NODE_ENV === "production") {
-    throw new Error("AUTH_SECRET must contain at least 32 characters");
+/** Sign-in cannot work because the deployment is missing a usable AUTH_SECRET. */
+export class AuthConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AuthConfigError";
   }
-  // Random per-process development key; never a publicly known signing secret.
-  return developmentKey;
+}
 
+function envSecret(): string | undefined {
+  return process.env.AUTH_SECRET || process.env.JWT_SECRET || undefined;
+}
+
+/** True when a real (non-placeholder, 32+ char) secret is set in the environment. */
+export function hasEnvSecret(): boolean {
+  const secret = envSecret();
+  return !!secret && secret.length >= MIN_SECRET_LENGTH && secret !== PLACEHOLDER_SECRET;
+}
+
+/**
+ * Why token signing would fail right now, or null when auth is usable.
+ * In development a missing secret is fine (ephemeral per-process key);
+ * in production it must be an operator error the API can report, not a 500.
+ */
+export function getAuthConfigError(): string | null {
+  const secret = envSecret();
+  if (secret) {
+    if (secret.length < MIN_SECRET_LENGTH) {
+      return "AUTH_SECRET must contain at least 32 characters.";
+    }
+    if (secret === PLACEHOLDER_SECRET && process.env.NODE_ENV === "production") {
+      return "AUTH_SECRET is still the placeholder value from .env.example. Set your own random secret of at least 32 characters.";
+    }
+    return null;
+  }
+  if (process.env.NODE_ENV === "production") {
+    return "AUTH_SECRET is not set. It must contain at least 32 characters.";
+  }
+  return null;
+}
+
+function secretKey(): Uint8Array {
+  const problem = getAuthConfigError();
+  if (problem) throw new AuthConfigError(problem);
+  const secret = envSecret();
+  // No env secret outside production: random per-process development key,
+  // never a publicly known signing secret.
+  return secret ? new TextEncoder().encode(secret) : developmentKey;
 }
 
 export async function hashPassword(password: string): Promise<string> {

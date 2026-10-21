@@ -1,4 +1,5 @@
 import { defineEventHandler, createError, getHeader, setResponseHeader } from "h3";
+import { storageOr503 } from "../../lib/api-helpers.ts";
 import { verifyToken, extractBearerToken } from "../../lib/auth.ts";
 import { getUserById } from "../../lib/db.ts";
 
@@ -14,7 +15,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: "Invalid or expired token" });
   }
 
-  const user = await getUserById(payload.sub);
+  const user = await storageOr503("me user lookup", () => getUserById(payload.sub));
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: "User not found" });
   }

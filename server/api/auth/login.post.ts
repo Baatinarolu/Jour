@@ -1,11 +1,14 @@
 import { defineEventHandler, createError, getMethod, readBody, setResponseHeader } from "h3";
-import { verifyPassword, createToken, isValidEmail } from "../../lib/auth.ts";
+import { assertAuthConfigured, createSessionToken, storageOr503 } from "../../lib/api-helpers.ts";
+import { verifyPassword, isValidEmail } from "../../lib/auth.ts";
 import { getUserByEmail } from "../../lib/db.ts";
 
 export default defineEventHandler(async (event) => {
   if (getMethod(event) !== "POST") {
     throw createError({ statusCode: 405, statusMessage: "Method not allowed" });
   }
+  // Misconfigured deployment (e.g. no AUTH_SECRET): say so (503), don't 500.
+  assertAuthConfigured();
 
   const body = await readBody<unknown>(event);
   if (!body || typeof body !== "object" || !("email" in body) || !("password" in body)
@@ -22,12 +25,12 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: "Invalid email" });
   }
 
-  const user = await getUserByEmail(email);
+  const user = await storageOr503("login user lookup", () => getUserByEmail(email));
   if (!user || !(await verifyPassword(password, user.passwordHash))) {
     throw createError({ statusCode: 401, statusMessage: "Invalid email or password" });
   }
 
-  const token = await createToken({ sub: user.id, email: user.email });
+  const token = await createSessionToken(user);
 
   setResponseHeader(event, "Content-Type", "application/json");
   return { token, user: { id: user.id, email: user.email, createdAt: user.createdAt } };

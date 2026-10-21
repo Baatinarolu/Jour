@@ -68,8 +68,9 @@ export const useSync = create<SyncState>()(
         if (typeof window !== "undefined") {
           localStorage.removeItem(TOKEN_KEY);
           localStorage.removeItem(USER_KEY);
+          localStorage.removeItem(LAST_SYNC_KEY);
         }
-        set({ user: null, token: null, status: "idle", error: null });
+        set({ user: null, token: null, lastSyncedAt: null, status: "idle", error: null });
       },
     }),
     {
@@ -436,7 +437,8 @@ export async function syncNow(options: { direction?: "push" | "pull" | "both" } 
           const local = getCurrentBackup();
           // Validate remote backup shape before merge
           const remoteParsed = parseBackup(JSON.stringify(pulled.backup));
-          const remote = remoteParsed.ok ? remoteParsed.data : pulled.backup;
+          if (!remoteParsed.ok) throw new Error("Cloud backup is invalid. Local journal was not replaced.");
+      const remote = remoteParsed.data;
           const merged = mergeBackups(local, remote);
           // Only replace if merged differs from local (quick check via trade count or JSON)
           const localStr = JSON.stringify(local);
@@ -472,7 +474,8 @@ export async function syncNow(options: { direction?: "push" | "pull" | "both" } 
         return;
       }
       const remoteParsed = parseBackup(JSON.stringify(pulled.backup));
-      const remote = remoteParsed.ok ? remoteParsed.data : pulled.backup;
+      if (!remoteParsed.ok) throw new Error("Cloud backup is invalid. Local journal was not replaced.");
+      const remote = remoteParsed.data;
       const local = getCurrentBackup();
       const merged = mergeBackups(local, remote);
       const mergedStr = JSON.stringify(merged);

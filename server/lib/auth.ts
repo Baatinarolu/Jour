@@ -4,16 +4,17 @@ import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 const ALG = "HS256";
 const ISSUER = "santandc";
 const EXPIRY = "30d";
+const developmentKey = crypto.getRandomValues(new Uint8Array(32));
 
 function secretKey(): Uint8Array {
   const secret = process.env.AUTH_SECRET || process.env.JWT_SECRET;
-  if (secret && secret.length >= 16) return new TextEncoder().encode(secret);
-  // Dev fallback — stable per-container but warns in logs. On Vercel, set AUTH_SECRET env.
-  const fallback = "dev-only-santandc-secret-change-me-in-prod-32chars";
-  if (process.env.NODE_ENV === "production" && !secret) {
-    console.warn("[auth] AUTH_SECRET not set — using insecure dev fallback. Set AUTH_SECRET env in production.");
+  if (secret && secret.length >= 32) return new TextEncoder().encode(secret);
+  if (secret || process.env.NODE_ENV === "production") {
+    throw new Error("AUTH_SECRET must contain at least 32 characters");
   }
-  return new TextEncoder().encode(fallback);
+  // Random per-process development key; never a publicly known signing secret.
+  return developmentKey;
+
 }
 
 export async function hashPassword(password: string): Promise<string> {

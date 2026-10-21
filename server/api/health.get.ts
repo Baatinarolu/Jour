@@ -3,10 +3,10 @@ import { storageDiagnostics } from "../lib/db.ts";
 
 export default defineEventHandler(async () => {
   const storage = await storageDiagnostics();
-  const hasAuthSecret = !!(process.env.AUTH_SECRET || process.env.JWT_SECRET);
+  const hasAuthSecret = (process.env.AUTH_SECRET || process.env.JWT_SECRET || "").length >= 32;
 
   return {
-    ok: true,
+    ok: storage.probe.ok && hasAuthSecret,
     time: new Date().toISOString(),
     env: process.env.VERCEL ? "vercel" : process.env.NODE_ENV || "dev",
     storage,

@@ -7,9 +7,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 405, statusMessage: "Method not allowed" });
   }
 
-  const body = await readBody<{ email?: string; password?: string }>(event);
-  const email = (body?.email ?? "").trim().toLowerCase();
-  const password = body?.password ?? "";
+  const body = await readBody<unknown>(event);
+  if (!body || typeof body !== "object" || !("email" in body) || !("password" in body)
+      || typeof body.email !== "string" || typeof body.password !== "string") {
+    throw createError({ statusCode: 400, statusMessage: "Email and password must be strings" });
+  }
+  const email = body.email.trim().toLowerCase();
+  const password = body.password;
 
   if (!email || !password) {
     throw createError({ statusCode: 400, statusMessage: "Email and password required" });
@@ -19,17 +23,8 @@ export default defineEventHandler(async (event) => {
   }
 
   const user = await getUserByEmail(email);
-  if (!user) {
-    throw createError({
-      statusCode: 401,
-      statusMessage:
-        "No account with this email on this server. If it worked before and disappeared, the deployment lost its storage on redeploy — create the account again; your journal on this device is not affected.",
-    });
-  }
-
-  const ok = await verifyPassword(password, user.passwordHash);
-  if (!ok) {
-    throw createError({ statusCode: 401, statusMessage: "Wrong password for this account" });
+  if (!user || !(await verifyPassword(password, user.passwordHash))) {
+    throw createError({ statusCode: 401, statusMessage: "Invalid email or password" });
   }
 
   const token = await createToken({ sub: user.id, email: user.email });

@@ -7,9 +7,13 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 405, statusMessage: "Method not allowed" });
   }
 
-  const body = await readBody<{ email?: string; password?: string }>(event);
-  const email = (body?.email ?? "").trim().toLowerCase();
-  const password = body?.password ?? "";
+  const body = await readBody<unknown>(event);
+  if (!body || typeof body !== "object" || !("email" in body) || !("password" in body)
+      || typeof body.email !== "string" || typeof body.password !== "string") {
+    throw createError({ statusCode: 400, statusMessage: "Email and password must be strings" });
+  }
+  const email = body.email.trim().toLowerCase();
+  const password = body.password;
 
   if (!email || !password) {
     throw createError({ statusCode: 400, statusMessage: "Email and password required" });
@@ -35,7 +39,7 @@ export default defineEventHandler(async (event) => {
       statusCode: message.toLowerCase().includes("already registered") ? 409 : 500,
       statusMessage: message.toLowerCase().includes("already registered")
         ? "Email already registered"
-        : `Could not create account: ${message}`,
+        : "Could not create account",
     });
   }
   const token = await createToken({ sub: user.id, email: user.email });

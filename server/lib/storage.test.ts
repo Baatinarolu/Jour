@@ -82,7 +82,7 @@ function createServer(store: Store) {
 
 const store: Store = { strings: new Map(), sets: new Map() };
 let server: http.Server;
-let storage: typeof import("./kv-store.ts");
+let storage: typeof import("./redis-store.ts");
 
 before(async () => {
   server = createServer(store);
@@ -90,7 +90,7 @@ before(async () => {
   const { port } = server.address() as AddressInfo;
   process.env.KV_REST_API_URL = `http://127.0.0.1:${port}`;
   process.env.KV_REST_API_TOKEN = "test-token";
-  storage = await import("./kv-store.ts");
+  storage = await import("./redis-store.ts");
 });
 
 after(() => {
@@ -151,13 +151,14 @@ function makeBackup(tradeCount: number, note = "x") {
   };
 }
 
-test("redis driver is detected", () => {
-  assert.equal(storage.getStorageDriver(), "vercel-kv");
-  assert.match(storage.getStorageInfo(), /persist/i);
+test("redis driver is detected", async () => {
+  const db = await import("./db.ts");
+  assert.equal(db.getStorageDriver(), "vercel-kv");
+  assert.match(db.getStorageInfo(), /persist/i);
 });
 
 test("health self-test passes against the emulated store", async () => {
-  const result = await storage.storageSelfTest();
+  const result = await storage.redisSelfTest();
   assert.equal(result.ok, true, result.detail);
 });
 
@@ -166,7 +167,7 @@ test("accounts survive a simulated cold start", async () => {
   assert.equal(user.email, "rider@example.com");
 
   // Simulated cold start: drop the module cache, re-import, read again.
-  const fresh = await import(`./kv-store.ts?fresh=${Date.now()}`);
+  const fresh = await import(`./redis-store.ts?fresh=${Date.now()}`);
   const found = await fresh.getUserByEmail("RIDER@example.com");
   assert.equal(found?.id, user.id);
   assert.equal(await fresh.listUsersCount(), 1);

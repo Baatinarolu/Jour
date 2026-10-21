@@ -136,8 +136,24 @@ export function CloudSyncPanel() {
 
   const ephemeral = health?.storage?.persistent === false;
   const healthUnknown = healthState === "unreachable";
+  const configuredButBroken = health?.storage?.persistent === true && health?.storage?.probe?.ok === false;
 
-  const storageBanner = healthUnknown ? (
+  const storageBanner = configuredButBroken ? (
+    <div className="mt-4 flex items-start gap-2 rounded-sm border border-down/40 bg-down/5 p-3">
+      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-down" />
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-down">Database configured but not reachable</p>
+        <p className="mt-1 break-words text-xs text-muted">{health?.storage?.probe?.detail}</p>
+        <p className="mt-1 text-xs text-muted">
+          Check the connection string in Vercel → Settings → Environment Variables (<span className="font-mono">POSTGRES_URL</span>), then redeploy.{" "}
+          {health?.hint}
+        </p>
+        <Button variant="ghost" size="sm" className="mt-2" onClick={() => void refreshHealth()}>
+          <RefreshCw className="size-3.5" /> Check again
+        </Button>
+      </div>
+    </div>
+  ) : healthUnknown ? (
     <div className="mt-4 flex items-start gap-2 rounded-sm border border-down/40 bg-down/5 p-3">
       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-down" />
       <div className="min-w-0">
@@ -166,8 +182,8 @@ export function CloudSyncPanel() {
         </button>
         {showFix ? (
           <ol className="mt-2 grid gap-1 text-xs text-muted">
-            <li>1. Vercel dashboard → your project → <span className="font-medium">Storage</span> → <span className="font-medium">Create Database</span> → KV / Upstash Redis (free tier is fine).</li>
-            <li>2. Attach it to the project — Vercel adds <span className="font-mono">KV_REST_API_URL</span> and <span className="font-mono">KV_REST_API_TOKEN</span> automatically.</li>
+            <li>1. Connect a Postgres database: Vercel → your project → <span className="font-medium">Storage</span> → <span className="font-medium">Supabase</span> (or Upstash KV) and attach it.</li>
+            <li>2. Vercel then injects <span className="font-mono">POSTGRES_URL</span> (or <span className="font-mono">KV_REST_API_URL</span>) automatically — no code change.</li>
             <li>3. Add an <span className="font-mono">AUTH_SECRET</span> env var (any 32+ character string) so sessions survive too.</li>
             <li>4. Redeploy. This panel will say <span className="font-medium">Storage: persistent</span>.</li>
           </ol>
@@ -180,8 +196,10 @@ export function CloudSyncPanel() {
       <div className="min-w-0">
         <p className="text-xs font-medium text-up">Storage: persistent</p>
         <p className="mt-1 text-xs text-muted">
-          {typeof health.accounts === "number" ? `${health.accounts} account${health.accounts === 1 ? "" : "s"} on this server · ` : ""}
-          {health.storage?.detail ?? health.storage?.driver} {health.authSecretSet === false ? " · AUTH_SECRET not set — sessions may expire on redeploy." : ""}
+          {typeof health.storage?.accounts === "number" ? `${health.storage.accounts} account${health.storage.accounts === 1 ? "" : "s"} on this server · ` : ""}
+          {health.storage?.detail ?? health.storage?.driver}
+          {health.storage?.probe?.detail ? ` · ${health.storage.probe.detail}` : ""}
+          {health.authSecretSet === false ? " · AUTH_SECRET not set — sessions may expire on redeploy." : ""}
         </p>
       </div>
     </div>

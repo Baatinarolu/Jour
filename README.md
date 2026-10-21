@@ -65,9 +65,10 @@ Out of the box it is local-only (no account, no cloud). When you need multi-devi
 - After sign-in, SANTANDC pulls on open, on tab focus, and every ~30s, and pushes 2s after you stop typing. Use **Sync now** for an immediate push/pull.
 - Cloud payload is the same v4 backup (trades, rules/checks, playbooks, daily entries, weekly reviews, screenshots, balance). Max backup ~10 MB; screenshots are data URLs and count toward it.
 - Auth is email + password hashed with bcrypt, JWT (30-day expiry, Bearer token in `localStorage`). Transport is HTTPS on Vercel. No email verification — keep the password safe.
-- Storage model: the API (`/api/auth/*`, `/api/sync`, `/api/health`) runs on your own deployment.
-  - **With a Redis store** (Vercel KV or Upstash — `KV_REST_API_URL` + `KV_REST_API_TOKEN`, or `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`): users and journals persist across deploys and cold starts. Journals are chunked so screenshot-heavy backups still fit request limits.
-  - **Without one**: it falls back to files (`server/.data` locally, `/tmp/santandc` on Vercel). `/tmp` is wiped on redeploy and cold start — accounts created there disappear, which looks like “my account no longer exists”.
+- Storage model: the API (`/api/auth/*`, `/api/sync`, `/api/health`) runs on your own deployment, in this order:
+  1. **Postgres** — `POSTGRES_URL` (or `DATABASE_URL` / `POSTGRES_PRISMA_URL` / `POSTGRES_URL_NON_POOLING`). This is what Supabase and Neon set automatically; `POSTGRES_URL` from Vercel's Supabase integration works unchanged. Tables `santandc_users` and `santandc_journals` are created on first request. Works through Supabase's PgBouncer pooler (port 6543).
+  2. **Redis** — Vercel KV or Upstash (`KV_REST_API_*` / `UPSTASH_REDIS_REST_*`). Journals are chunked so screenshot-heavy backups stay under request limits.
+  3. **Files** — `server/.data` locally, `/tmp/santandc` on Vercel. `/tmp` is wiped on redeploy and cold start, so accounts created there disappear. This is the fallback only.
   - Open `/api/health` on any deployment to see exactly which driver is active. The Cloud sync panel shows the same status, with a warning when storage is ephemeral.
   - Set `AUTH_SECRET` (long random, e.g. `openssl rand -hex 32`) so JWTs stay valid across redeploys. See `.env.example`.
 - Deletions sync: erasing/clearing locally propagates to the cloud (the push carries `lastSyncedAt`, and entities that existed at the last sync but are now missing are treated as deleted). A brand-new device with an empty journal does *not* wipe the cloud. **Clear cloud (force push local)** in Settings replaces the cloud copy with this device's journal.
@@ -126,9 +127,10 @@ npm run build
 1. Push this branch to GitHub.
 2. In Vercel, import `Baatinarolu/Jour` and deploy. For local-only use, no env vars are required.
 3. Cloud sync in production needs durable storage — do this once, it takes a couple of minutes:
-   1. Vercel dashboard → your project → **Storage** → **Create Database** → KV / Upstash Redis (free tier is enough) and attach it to the project. Vercel injects `KV_REST_API_URL` and `KV_REST_API_TOKEN` automatically (Upstash marketplace stores expose `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`; both are supported).
+   1. Vercel dashboard → your project → **Storage** → create a **Supabase** Postgres (or Upstash Redis) and attach it to the project. Vercel injects `POSTGRES_URL` (Supabase) or `KV_REST_API_URL` / `KV_REST_API_TOKEN` (Redis) automatically.
    2. Add `AUTH_SECRET` — a long random string (`openssl rand -hex 32`) so sign-in sessions survive redeploys.
-   3. Redeploy. Visit `/api/health`; it should report `"driver": "vercel-kv"` (or `upstash-redis`) and `"persistent": true`.
+   3. Redeploy. Visit `/api/health`; it should report `"driver": "supabase-postgres"` (or `postgres` / `vercel-kv`) and `"persistent": true` with `"probe": { "ok": true }`.
+   - Already have a Supabase project? Copy its pooled connection string into `POSTGRES_URL` (Project Settings → Database → Connection string → Connection pooling, port `6543`, `sslmode=require`). The driver accepts `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, `DATABASE_URL` or `POSTGRES_URL_NON_POOLING`, and imports nothing Supabase-specific.
    - Without a Redis store, the app still runs and cloud sync still works **within** a deployment, but Vercel's `/tmp` is wiped on redeploy/cold start, so accounts vanish. The Settings panel warns about this and the health endpoint explains it.
    - Copy `.env.example` for local dev. Local testing without a real store: `node scripts/mock-redis.mjs 8090`, then build with `KV_REST_API_URL=http://127.0.0.1:8090 KV_REST_API_TOKEN=local`.
 
@@ -139,7 +141,8 @@ Or from a checkout: `npx vercel` for preview, `npx vercel --prod` for production
 - Key: `santandc-journal-v1`, in `localStorage` (local baseline, survives offline).
 - Cloud key: `santandc-sync-v1` + `santandc-auth-token` + `santandc-last-sync` for the JWT and last sync time when cloud is on.
 - On first run, a legacy `folio-journal-v1` journal is migrated by copy; the old key is left untouched.
-- Server storage: Redis when `KV_REST_API_*` / `UPSTASH_REDIS_REST_*` is present (keys `santandc:user:*`, `santandc:journal:*`). Otherwise files under `SANTANDC_DATA_DIR` (default `server/.data` locally, `/tmp/santandc` on Vercel) — ephemeral on Vercel. Check `/api/health`.
+- Server storage, in priority order: Postgres (`santandc_users`, `santandc_journals`, one JSONB row per user) → Redis (`santandc:user:*`, `santandc:journal:*`) → files under `SANTANDC_DATA_DIR` (default `server/.data` locally, `/tmp/santandc` on Vercel, ephemeral). `/api/health` always reports the live driver and probes it.
+- If the database is unreachable the app says so instead of silently falling back, so data can never be split across two stores.
 - SANTANDC is installable as a PWA. Without cloud, journal data is per browser/device; with cloud, signing in on another device pulls the merged journal.
 
 ## Stack

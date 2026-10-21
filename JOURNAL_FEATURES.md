@@ -23,14 +23,15 @@ This build was intentionally narrowed to **trade journaling and chart review**. 
 | Session analysis | Asia, London, London/New York overlap, New York, and Other breakdowns. |
 | Deep cuts | Playbook, account, market, timeframe, emotions, mistake, confidence, hour, and holding-time breakdowns in addition to symbol/setup/side/grade/tags. |
 | Data integrity | Versioned local backups (currently v4), safe v1/v2/v3 migration, validation, duplicate-ID repair, daily/weekly journal preservation, and CSV fingerprints. |
+| Cloud sync | Optional email+password auth (bcrypt + JWT 30d), per-user JSON on your Vercel deployment, offline queue, entity-level LWW merge, auto-sync on focus + debounced push, bearer token in localStorage, 10 MB backup cap. |
 
 ## Deliberately not included
 
 - Live broker connections, order entry, paper positions, alerts, or kill switches.
 - Economic calendars/news analysis.
 - A general notebook, meditation/Sanctuary area, courses, or community features.
-- Cloud accounts, multi-device sync, or a server-side AI coach.
-- TradingView webhooks. SANTANDC stores its journal in browser `localStorage`; a reliable webhook inbox would require authenticated server storage and would contradict the current local-only architecture.
+- A server-side AI coach.
+- TradingView order-execution webhooks — chart sync is read-only; journal webhooks can now use the authenticated sync API when needed.
 
 ## Design rule
 

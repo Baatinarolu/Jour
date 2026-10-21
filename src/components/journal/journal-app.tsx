@@ -9,8 +9,9 @@ import { filterTradesByRange, type RangeFilter } from "@/lib/journal/insights";
 import { useHydrateJournal, useJournal } from "@/lib/journal/store";
 import type { JournalView, Trade, TradeQuery } from "@/lib/journal/types";
 import { cn } from "@/lib/utils";
-import { BookOpen, ChartCandlestick, LayoutDashboard, List, NotebookPen, Plus, Settings, SquareChartGantt } from "lucide-react";
+import { BookOpen, ChartCandlestick, Cloud, CloudOff, LayoutDashboard, List, NotebookPen, Plus, Settings, SquareChartGantt } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
+import { setupAutoSync, useSync } from "@/lib/journal/sync";
 
 const ReviewView = lazy(() =>
   import("@/components/journal/review-view").then((module) => ({ default: module.ReviewView })),
@@ -79,6 +80,15 @@ export function JournalApp() {
   const [query, setQuery] = useState<TradeQuery>({ q: "", result: "all", day: null });
   const [range, setRange] = useState<RangeFilter>("all");
   const [metric, setMetric] = useState<PerformanceMode>("money");
+  const syncUser = useSync((s) => s.user);
+  const syncStatus = useSync((s) => s.status);
+  const lastSyncedAt = useSync((s) => s.lastSyncedAt);
+
+  useEffect(() => {
+    if (!ready) return;
+    const cleanup = setupAutoSync();
+    return cleanup;
+  }, [ready]);
 
   const titles: Record<JournalView, string> = {
     overview: "Overview",
@@ -141,7 +151,33 @@ export function JournalApp() {
             <Settings className="size-4" />
             Settings
           </Button>
-          <p className="px-3 text-sm text-subtle">On this device</p>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center gap-2 px-3 py-2 text-left text-xs text-subtle hover:text-muted"
+            title={syncUser ? `Cloud sync: ${syncUser.email}` : "Local only — tap to enable cloud sync"}
+          >
+            {syncUser ? (
+              <Cloud
+                className={`size-3.5 shrink-0 ${syncStatus === "syncing" ? "animate-pulse text-up" : syncStatus === "error" || syncStatus === "offline" ? "text-down" : "text-up"}`}
+              />
+            ) : (
+              <CloudOff className="size-3.5 shrink-0" />
+            )}
+            <span className="min-w-0 truncate">
+              {syncUser
+                ? syncStatus === "syncing"
+                  ? "Syncing…"
+                  : syncStatus === "error"
+                    ? "Sync error"
+                    : syncStatus === "offline"
+                      ? "Offline"
+                      : lastSyncedAt
+                        ? `Synced · ${new Date(lastSyncedAt).toLocaleDateString()}`
+                        : "Synced"
+                : "Private · local only"}
+            </span>
+          </button>
         </div>
       </aside>
 

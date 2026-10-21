@@ -6,6 +6,7 @@ import { parseCsvTrades, tradesToCsv, type CsvImportResult } from "@/lib/journal
 import type { JournalBackup, Trade } from "@/lib/journal/types";
 import { format } from "date-fns";
 import { useEffect, useRef, useState } from "react";
+import { CloudSyncPanel } from "@/components/journal/cloud-sync-panel";
 
 export function SettingsDialog({
   open,
@@ -61,9 +62,11 @@ export function SettingsDialog({
       open={open}
       onOpenChange={close}
       title="Settings"
-      description="Stored in this browser only. Download a backup if you want a copy."
+      description="Local by default, cloud optional. Download a backup if you want a copy."
     >
       <div className="grid gap-5">
+        <CloudSyncPanel />
+
         {error ? (
           <p role="alert" className="text-sm text-down">
             {error}

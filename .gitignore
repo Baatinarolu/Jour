@@ -1,9 +1,11 @@
+server/.data/
 node_modules/
 .vercel/
 .tanstack/
 dist/
 .env
 .env.*
+!.env.example
 .project_id
 .github_repo
 .grok/

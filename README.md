@@ -1,8 +1,8 @@
 # SANTANDC — trade journal
 
-SANTANDC is a private, local-only journal for **closed trades**. It is built for the review loop: write the playbook, log the execution and the context around it, put the trade next to a TradingView chart, then find the few repeatable conditions and leaks that actually explain the curve.
+SANTANDC is a private journal for **closed trades**. It is built for the review loop: write the playbook, log the execution and the context around it, put the trade next to a TradingView chart, then find the few repeatable conditions and leaks that actually explain the curve.
 
-There is deliberately no account system, cloud database, broker connection, order routing, live position manager, news desk, notebook, meditation module, course library, or generic AI chat. Your journal is stored in your browser.
+Out of the box it is local-only (no account, no cloud). When you need multi-device access, enable **Cloud sync** in Settings — your journal is then backed up per-account to your own Vercel deployment and merges offline edits when you reconnect. There is still no broker connection, order routing, live position manager, news desk, or generic AI chat.
 
 ## What's here
 
@@ -58,13 +58,23 @@ There is deliberately no account system, cloud database, broker connection, orde
 - Embedded-widget data can be delayed for some exchanges. That is a TradingView widget/feed limitation, not a static screenshot: forex and crypto are commonly real-time, while many stock/futures feeds are delayed unless opened in TradingView with the required data permissions.
 - Privacy boundary: TradingView receives only the chart symbol/interval/watchlist needed to render its widget. Your notes, screenshots, size, account label, and P&L are not sent by SANTANDC.
 
+### Cloud sync (optional)
+
+- Local-only by default. Open **Settings → Cloud sync** to create an account (email + password) and sync.
+- **Sign in on phone + desktop with the same email** to share the same journal. Offline edits are queued; on reconnect the two copies merge by `updatedAt` per trade/playbook/day so you don't lose a phone edit when the desktop pushes.
+- After sign-in, SANTANDC pulls on open, on tab focus, and every ~30s, and pushes 2s after you stop typing. Use **Sync now** for an immediate push/pull.
+- Cloud payload is the same v4 backup (trades, rules/checks, playbooks, daily entries, weekly reviews, screenshots, balance). Max backup ~10 MB; screenshots are data URLs and count toward it.
+- Auth is email + password hashed with bcrypt, JWT (30-day expiry, Bearer token in `localStorage`). Transport is HTTPS on Vercel. No email verification — keep the password safe.
+- Deployment model: the API (`/api/auth/*` and `/api/sync`) runs on your Vercel deployment and stores per-user JSON under `SANTANDC_DATA_DIR` (default `server/.data` locally, `/tmp/santandc` on Vercel). On Vercel `/tmp` is ephemeral between deploys — for durable prod storage, set `DATABASE_URL` to a Postgres (Neon/Supabase) and swap the `server/lib/db.ts` file driver for Postgres (abstraction is ready). Set `AUTH_SECRET` (long random, e.g. `openssl rand -hex 32`) so JWTs survive redeploys. See `.env.example`.
+- You can stay local forever or toggle cloud per device: local data is preserved on log out; signing in again merges.
+
 ### Import, export, and backup
 
 - CSV export includes execution, risk, playbook, account, TradingView, emotion/confidence, mistake/lesson, reasons, criteria, MAE/MFE, and source fields.
 - CSV import accepts common broker/export header aliases and SANTANDC's own export. Invalid rows are reported without discarding valid rows, negative commissions are normalized, and exact duplicate trades are skipped automatically on re-import.
 - Put `multiplier` in a broker CSV when the export uses contracts/lots rather than raw units—for example, options normally use `100`; ES futures normally use `50`; a standard forex lot normally needs `100000` if quantity is lots.
 - JSON backups are version 4 and include trades, rules/checks, playbooks, active playbook, daily entries, weekly reviews, screenshots, and starting balance. Version 1, 2, and 3 Folio/SANTANDC backups still import and are normalized safely.
-- Screenshots are browser-local, so export a JSON backup regularly. Browser storage is finite; clearing site data removes an unbacked journal.
+- Screenshots are included in cloud sync when you use it; otherwise they are browser-local, so export a JSON backup regularly. Browser storage is finite; clearing site data removes an unbacked journal. Cloud users should still download periodic JSON backups.
 
 ## A good weekly workflow
 
@@ -80,7 +90,8 @@ There is deliberately no account system, cloud database, broker connection, orde
 
 - Closed trades only. There is no live execution, broker sync, open-position tracker, alert engine, or risk lockout.
 - Demo, prop, and live accounts can be separated with account labels and filters, but SANTANDC does not try to reconcile broker balances.
-- TradingView is a chart/review integration, not an order-routing or webhook integration. A webhook cannot reliably write into browser-local storage without adding accounts and a backend.
+- TradingView is a chart/review integration, not an order-routing or webhook integration.
+- Cloud sync is a journal backup/sync layer (your trades and notes), not a trading infrastructure. A webhook cannot reliably write into browser-local storage; use the sync API with auth if you build automations.
 - The smart review is local and formula-based. It never invents trades and it needs real journal context to become useful.
 
 ## Run locally
@@ -108,15 +119,21 @@ npm run build
 `vercel.json` pins the framework as `tanstack-start`; the repo otherwise uses the framework preset with no custom output directory or build overrides.
 
 1. Push this branch to GitHub.
-2. In Vercel, import `Baatinarolu/Jour` and deploy. No environment variables are required.
+2. In Vercel, import `Baatinarolu/Jour` and deploy. For local-only use, no env vars are required.
+3. To enable durable cloud sync in production, add env vars in Vercel → Settings → Environment Variables:
+   - `AUTH_SECRET` — long random string (e.g. `openssl rand -hex 32`) so sessions survive redeploys.
+   - Optional `SANTANDC_DATA_DIR` if you use a mounted volume; default is `/tmp/santandc` (ephemeral — survives requests but not redeploys). For true persistence, connect a Postgres `DATABASE_URL` (Neon, Supabase, etc.) — the file driver in `server/lib/db.ts` is ready to be swapped; the merge logic stays the same.
+   - Copy `.env.example` for local dev.
 
 Or from a checkout: `npx vercel` for preview, `npx vercel --prod` for production.
 
 ## Storage and browser data
 
-- Key: `santandc-journal-v1`, in `localStorage`.
+- Key: `santandc-journal-v1`, in `localStorage` (local baseline, survives offline).
+- Cloud key: `santandc-sync-v1` + `santandc-auth-token` + `santandc-last-sync` for the JWT and last sync time when cloud is on.
 - On first run, a legacy `folio-journal-v1` journal is migrated by copy; the old key is left untouched.
-- SANTANDC is installable as a PWA. Journal data is per browser/device by design.
+- Server storage: `SANTANDC_DATA_DIR` (default `server/.data` locally, `/tmp/santandc` on Vercel). One JSON per user. Ephemeral on Vercel without a DB — see above.
+- SANTANDC is installable as a PWA. Without cloud, journal data is per browser/device; with cloud, signing in on another device pulls the merged journal.
 
 ## Stack
 

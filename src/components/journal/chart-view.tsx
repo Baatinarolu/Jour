@@ -352,13 +352,11 @@ export function ChartView({
         ) : null}
       </section>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none xl:flex-row xl:overflow-hidden">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain xl:flex-row xl:overflow-hidden">
         <section
           aria-label="Live TradingView chart"
-          className={cn(
-            "relative min-h-[36rem] min-w-0 flex-1 xl:min-h-0",
-            expanded && "[&_iframe]:touch-none",
-          )}
+          className="relative min-h-[36rem] min-w-0 flex-1 overscroll-contain xl:min-h-0 [&_iframe]:!touch-auto"
+          style={{ touchAction: "pan-x pan-y" }}
         >
           <TradingViewChart
             symbol={appliedSymbol}

@@ -110,6 +110,11 @@ export function TradingViewChart({
         "header_in_fullscreen_mode",
         "side_toolbar_in_fullscreen_mode",
       ],
+      // Touch/pan must stay enabled — parent page uses overscroll-contain
+      // so the browser doesn't hijack the drag as a page scroll. The widget
+      // itself handles horz/vert touch drag internally when these are not
+      // disabled.
+      disabled_features: [],
       withdateranges: true,
       details: false,
       hotlist: false,

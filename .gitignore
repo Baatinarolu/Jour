@@ -1,0 +1,10 @@
+node_modules/
+.vercel/
+.tanstack/
+dist/
+.env
+.env.*
+.project_id
+.github_repo
+.grok/
+*.local

@@ -3,6 +3,7 @@
 // suite stays green without one.
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { createNeonQueryFn, detectPostgresProvider, postgresUrl } from "./postgres-store.ts";
 
 const url = process.env.TEST_POSTGRES_URL ?? "";
 const enabled = url.length > 0;
@@ -174,3 +175,62 @@ database("postgres store: force push replaces", { skip: !enabled }, async () => 
 });
 
 skip("postgres store: skipped without TEST_POSTGRES_URL");
+
+// ── Neon selection unit tests (no database needed) ──
+
+test("detectPostgresProvider identifies Neon, Supabase and generic hosts", () => {
+  assert.equal(
+    detectPostgresProvider("postgresql://u:p@ep-cool-123.us-east-2.aws.neon.tech/neondb?sslmode=require"),
+    "neon",
+  );
+  assert.equal(
+    detectPostgresProvider("postgresql://u:p@ep-cool-123-pooler.c-2.us-east-2.aws.neon.tech/neondb"),
+    "neon",
+  );
+  assert.equal(
+    detectPostgresProvider("postgresql://postgres.x:p@aws-0-eu-central-1.pooler.supabase.com:6543/postgres"),
+    "supabase",
+  );
+  assert.equal(detectPostgresProvider("postgresql://u:p@db.example.com:5432/app"), "generic");
+  assert.equal(detectPostgresProvider("postgresql://u:p@127.0.0.1:5432/app"), "generic");
+  // A database *named* neondb on someone else's host is not Neon.
+  assert.equal(detectPostgresProvider("postgresql://u:p@db.example.com/neondb"), "generic");
+});
+
+test("postgresUrl prefers a Neon URL when several variables are set", () => {
+  const keys = ["POSTGRES_URL", "DATABASE_URL", "POSTGRES_PRISMA_URL", "POSTGRES_URL_NON_POOLING"] as const;
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try {
+    for (const k of keys) delete process.env[k];
+    assert.equal(postgresUrl(), null);
+
+    process.env.POSTGRES_URL = "postgresql://postgres.x:p@aws-0.pooler.supabase.com:6543/postgres";
+    assert.equal(postgresUrl(), process.env.POSTGRES_URL);
+
+    // Attaching Neon (DATABASE_URL) wins over a stale Supabase POSTGRES_URL.
+    process.env.DATABASE_URL = "postgresql://u:p@ep-x-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require";
+    assert.equal(postgresUrl(), process.env.DATABASE_URL);
+
+    // Copy/paste artifacts are cleaned up.
+    process.env.DATABASE_URL = " postgresql://u:p@ep-x.us-east-2.aws.neon.tech/neondb?sslmode=require&amp;channel_binding=require ";
+    assert.equal(postgresUrl(), "postgresql://u:p@ep-x.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require");
+  } finally {
+    for (const k of keys) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+});
+
+test("createNeonQueryFn forwards text/params and returns rows", async () => {
+  const calls: Array<[string, unknown[] | undefined]> = [];
+  const run = createNeonQueryFn({
+    query: async (text, params) => {
+      calls.push([text, params]);
+      return { rows: [{ id: "u1", backup: { version: 4 } }] };
+    },
+  });
+  const { rows } = await run("SELECT * FROM santandc_journals WHERE user_id = $1", ["u1"]);
+  assert.deepEqual(rows, [{ id: "u1", backup: { version: 4 } }]);
+  assert.deepEqual(calls, [["SELECT * FROM santandc_journals WHERE user_id = $1", ["u1"]]]);
+});

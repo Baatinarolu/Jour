@@ -168,7 +168,7 @@ export function CloudSyncPanel() {
         <p className="text-xs font-medium text-down">Database configured but not reachable</p>
         <p className="mt-1 break-words text-xs text-muted">{health?.storage?.probe?.detail}</p>
         <p className="mt-1 text-xs text-muted">
-          Check the connection string in Vercel → Settings → Environment Variables (<span className="font-mono">POSTGRES_URL</span>), then redeploy.{" "}
+          Check the connection string in Vercel → Settings → Environment Variables (<span className="font-mono">DATABASE_URL</span> / <span className="font-mono">POSTGRES_URL</span>), then redeploy.{" "}
           {health?.hint}
         </p>
         <Button variant="ghost" size="sm" className="mt-2" onClick={() => void refreshHealth()}>
@@ -205,8 +205,8 @@ export function CloudSyncPanel() {
         </button>
         {showFix ? (
           <ol className="mt-2 grid gap-1 text-xs text-muted">
-            <li>1. Connect a Postgres database: Vercel → your project → <span className="font-medium">Storage</span> → <span className="font-medium">Supabase</span> (or Upstash KV) and attach it.</li>
-            <li>2. Vercel then injects <span className="font-mono">POSTGRES_URL</span> (or <span className="font-mono">KV_REST_API_URL</span>) automatically — no code change.</li>
+            <li>1. Create a Neon database: Vercel → your project → <span className="font-medium">Storage</span> → <span className="font-medium">Create Database</span> → <span className="font-medium">Neon</span>, and connect it to the project (any Postgres or Upstash KV also works).</li>
+            <li>2. Vercel then injects <span className="font-mono">DATABASE_URL</span> (or <span className="font-mono">KV_REST_API_URL</span>) automatically — no code change.</li>
             <li>3. Add an <span className="font-mono">AUTH_SECRET</span> env var (32+ random characters, e.g. <span className="font-mono">openssl rand -hex 32</span>) — sign-in cannot work without it.</li>
             <li>4. Redeploy. This panel will say <span className="font-medium">Storage: persistent</span>.</li>
           </ol>

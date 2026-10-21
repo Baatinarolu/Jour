@@ -16,7 +16,7 @@ export default defineEventHandler(async () => {
   }
   if (!storage.persistent) {
     problems.push(
-      "Accounts are stored in /tmp and are wiped on redeploy or cold start. Attach a Postgres database (Supabase) or a KV store so the project gets POSTGRES_URL / KV_REST_API_URL, then redeploy.",
+      "Accounts are stored in /tmp and are wiped on redeploy or cold start. Attach a Neon Postgres database (Vercel → Storage → Create Database → Neon) or a KV store so the project gets DATABASE_URL / KV_REST_API_URL, then redeploy.",
     );
   } else if (!storage.probe.ok) {
     problems.push(`Database is configured but not usable: ${storage.probe.detail}`);

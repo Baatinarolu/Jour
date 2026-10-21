@@ -1,8 +1,8 @@
 // Storage facade used by every server route.
 //
 // Driver priority:
-//   1. Postgres  (Supabase / Neon / any POSTGRES_URL)  — durable
-//   2. Redis     (Vercel KV / Upstash)                 — durable
+//   1. Postgres  (Neon recommended / any DATABASE_URL or POSTGRES_URL) — durable
+//   2. Redis     (Vercel KV / Upstash)                                  — durable
 //   3. Files     (server/.data locally, /tmp on Vercel) — ephemeral in production
 //
 // All drivers expose the same async API, so routes never care which one is live.
@@ -16,6 +16,7 @@ import * as redisStore from "./redis-store.ts";
 export type { JournalRecord, UserRecord } from "./db-file.ts";
 
 export type StorageDriver =
+  | "neon-postgres"
   | "supabase-postgres"
   | "postgres"
   | "vercel-kv"
@@ -23,8 +24,17 @@ export type StorageDriver =
   | "file:ephemeral"
   | "file:persistent";
 
+function isPostgresDriver(driver: StorageDriver): boolean {
+  return driver === "neon-postgres" || driver === "supabase-postgres" || driver === "postgres";
+}
+
 export function getStorageDriver(): StorageDriver {
-  if (pgStore.isPostgresConfigured()) return pgStore.isSupabase() ? "supabase-postgres" : "postgres";
+  if (pgStore.isPostgresConfigured()) {
+    const provider = pgStore.postgresProvider();
+    if (provider === "neon") return "neon-postgres";
+    if (provider === "supabase") return "supabase-postgres";
+    return "postgres";
+  }
   if (redisStore.isRedisConfigured()) return process.env.KV_REST_API_URL ? "vercel-kv" : "upstash-redis";
   if (process.env.VERCEL || process.env.NOW_BUILDER) return "file:ephemeral";
   return "file:persistent";
@@ -38,6 +48,8 @@ export function isPersistent(): boolean {
 export function getStorageInfo(): string {
   const driver = getStorageDriver();
   switch (driver) {
+    case "neon-postgres":
+      return "Neon Postgres (serverless) — accounts and journals are stored in your Neon database and survive redeploys.";
     case "supabase-postgres":
       return "Supabase Postgres — accounts and journals are stored in your database and survive redeploys.";
     case "postgres":
@@ -47,7 +59,7 @@ export function getStorageInfo(): string {
     case "upstash-redis":
       return "Upstash Redis — accounts and journals persist across deploys.";
     case "file:ephemeral":
-      return "Ephemeral /tmp — Vercel wipes it on redeploy and cold starts, so accounts are lost. Add a Postgres database (Supabase) or KV store to persist.";
+      return "Ephemeral /tmp — Vercel wipes it on redeploy and cold starts, so accounts are lost. Add a Neon Postgres database or KV store to persist.";
     default:
       return "Local file (server/.data) — persists while this server runs locally.";
   }
@@ -62,7 +74,7 @@ export async function storageDiagnostics() {
     ok: driver === "file:persistent",
     detail: driver === "file:persistent" ? "Local files are writable." : "No database configured — using filesystem.",
   };
-  if (driver === "supabase-postgres" || driver === "postgres") probe = await pgStore.postgresSelfTest();
+  if (isPostgresDriver(driver)) probe = await pgStore.postgresSelfTest();
   else if (driver === "vercel-kv" || driver === "upstash-redis") probe = await redisStore.redisSelfTest();
 
   let accounts = 0;
@@ -85,28 +97,28 @@ export async function storageDiagnostics() {
 
 export async function getUserByEmail(email: string): Promise<UserRecord | null> {
   const driver = getStorageDriver();
-  if (driver === "supabase-postgres" || driver === "postgres") return pgStore.getUserByEmail(email);
+  if (isPostgresDriver(driver)) return pgStore.getUserByEmail(email);
   if (driver === "vercel-kv" || driver === "upstash-redis") return redisStore.getUserByEmail(email);
   return fileStore.getUserByEmail(email);
 }
 
 export async function getUserById(id: string): Promise<UserRecord | null> {
   const driver = getStorageDriver();
-  if (driver === "supabase-postgres" || driver === "postgres") return pgStore.getUserById(id);
+  if (isPostgresDriver(driver)) return pgStore.getUserById(id);
   if (driver === "vercel-kv" || driver === "upstash-redis") return redisStore.getUserById(id);
   return fileStore.getUserById(id);
 }
 
 export async function createUser(email: string, passwordHash: string): Promise<UserRecord> {
   const driver = getStorageDriver();
-  if (driver === "supabase-postgres" || driver === "postgres") return pgStore.createUser(email, passwordHash);
+  if (isPostgresDriver(driver)) return pgStore.createUser(email, passwordHash);
   if (driver === "vercel-kv" || driver === "upstash-redis") return redisStore.createUser(email, passwordHash);
   return fileStore.createUser(email, passwordHash);
 }
 
 export async function listUsersCount(): Promise<number> {
   const driver = getStorageDriver();
-  if (driver === "supabase-postgres" || driver === "postgres") return pgStore.listUsersCount();
+  if (isPostgresDriver(driver)) return pgStore.listUsersCount();
   if (driver === "vercel-kv" || driver === "upstash-redis") return redisStore.listUsersCount();
   return fileStore.listUsersCount();
 }
@@ -115,7 +127,7 @@ export async function listUsersCount(): Promise<number> {
 
 export async function getJournal(userId: string): Promise<JournalRecord | null> {
   const driver = getStorageDriver();
-  if (driver === "supabase-postgres" || driver === "postgres") return pgStore.getJournal(userId);
+  if (isPostgresDriver(driver)) return pgStore.getJournal(userId);
   if (driver === "vercel-kv" || driver === "upstash-redis") return redisStore.getJournal(userId);
   return fileStore.getJournal(userId);
 }
@@ -126,7 +138,7 @@ export async function saveJournal(
   opts: { lastSyncedAt?: string | null; force?: boolean } = {},
 ): Promise<JournalRecord> {
   const driver = getStorageDriver();
-  if (driver === "supabase-postgres" || driver === "postgres") return pgStore.saveJournal(userId, backup, opts);
+  if (isPostgresDriver(driver)) return pgStore.saveJournal(userId, backup, opts);
   if (driver === "vercel-kv" || driver === "upstash-redis") return redisStore.saveJournal(userId, backup, opts);
   return fileStore.saveJournal(userId, backup, opts);
 }

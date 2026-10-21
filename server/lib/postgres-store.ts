@@ -1,10 +1,12 @@
-// Postgres driver (Supabase / Neon / any Postgres).
+// Postgres driver — Neon first, any other Postgres via pg.
 //
 // The journal is stored as one JSONB document per user plus a users table, so the
 // schema stays tiny and the merge semantics match the other drivers exactly.
 //
-// Works with Vercel's Supabase integration, which injects POSTGRES_URL /
-// POSTGRES_PRISMA_URL / POSTGRES_URL_NON_POOLING without any extra setup.
+// Neon connections use the official @neondatabase/serverless HTTP driver: one
+// fetch per query, no connection pool to exhaust on serverless, fast cold starts.
+// Vercel's Neon integration injects DATABASE_URL automatically. Non-Neon URLs
+// (Supabase, self-hosted, local) keep working through a small pg Pool.
 
 import type { JournalBackup } from "../../src/lib/journal/types.ts";
 import { mergeBackups } from "./db-file.ts";
@@ -20,25 +22,47 @@ const CONNECTION_ENV_VARS = [
   "POSTGRES_URL_NON_POOLING",
 ] as const;
 
-/** Connection string, or null when Postgres is not configured. */
+export type PostgresProvider = "neon" | "supabase" | "generic";
+
+/** Which provider a connection string points at, by hostname. */
+export function detectPostgresProvider(connectionString: string): PostgresProvider {
+  let host = "";
+  try {
+    host = new URL(connectionString).hostname.toLowerCase();
+  } catch {
+    host = connectionString.toLowerCase();
+  }
+  if (host.endsWith("neon.tech") || host.includes(".neon.tech")) return "neon";
+  if (/supabase\.(co|com|net)/.test(host)) return "supabase";
+  return "generic";
+}
+
+/**
+ * Connection string, or null when Postgres is not configured.
+ * A Neon URL wins over the other variables so attaching Neon to a project
+ * that still has a stale POSTGRES_URL switches providers immediately.
+ */
 export function postgresUrl(): string | null {
+  const candidates: string[] = [];
   for (const key of CONNECTION_ENV_VARS) {
     const value = process.env[key];
-    if (value && value.trim()) {
-      // Copy/paste artifacts ("&amp;") and stray whitespace break DNS lookups.
-      return value.trim().replace(/&amp;/g, "&");
-    }
+    // Copy/paste artifacts ("&amp;") and stray whitespace break DNS lookups.
+    if (value && value.trim()) candidates.push(value.trim().replace(/&amp;/g, "&"));
   }
-  return null;
+  if (candidates.length === 0) return null;
+  return candidates.find((url) => detectPostgresProvider(url) === "neon") ?? candidates[0];
 }
 
 export function isPostgresConfigured(): boolean {
   return postgresUrl() !== null;
 }
 
-export function isSupabase(): boolean {
-  const url = postgresUrl() ?? "";
-  return /supabase\.(co|com|net)/i.test(url) || !!process.env.SUPABASE_URL;
+/** Provider behind the active connection string, or null when not configured. */
+export function postgresProvider(): PostgresProvider | null {
+  const url = postgresUrl();
+  if (!url) return null;
+  if (process.env.SUPABASE_URL && detectPostgresProvider(url) === "generic") return "supabase";
+  return detectPostgresProvider(url);
 }
 
 function isLocalConnection(url: string): boolean {
@@ -80,7 +104,40 @@ async function getPool(): Promise<PoolLike> {
   return pool;
 }
 
+// ── Neon serverless (HTTP) ──
+
+type NeonSqlLike = {
+  query: (text: string, params?: unknown[]) => Promise<{ rows: Record<string, unknown>[] }>;
+};
+
+/** Adapt a Neon `sql` function (fullResults mode) to the store's QueryFn. */
+export function createNeonQueryFn(sql: NeonSqlLike): QueryFn {
+  return async (text, params) => {
+    const result = await sql.query(text, params);
+    return { rows: result.rows };
+  };
+}
+
+let neonFn: QueryFn | null = null;
+let neonFnUrl: string | null = null;
+
+async function getNeonQueryFn(url: string): Promise<QueryFn> {
+  if (neonFn && neonFnUrl === url) return neonFn;
+  const { neon } = await import("@neondatabase/serverless");
+  // fullResults makes responses pg-shaped ({ rows, rowCount, ... }); the HTTP
+  // driver needs no pool config and works with pooled or direct Neon hosts.
+  const sql = neon(url, { fullResults: true });
+  neonFn = createNeonQueryFn(sql as unknown as NeonSqlLike);
+  neonFnUrl = url;
+  return neonFn;
+}
+
 const query: QueryFn = async (sql, params) => {
+  const url = postgresUrl();
+  if (url && detectPostgresProvider(url) === "neon") {
+    const run = await getNeonQueryFn(url);
+    return run(sql, params);
+  }
   const client = await getPool();
   const result = await client.query(sql, params);
   return { rows: result.rows };
@@ -261,7 +318,8 @@ export async function postgresSelfTest(): Promise<{ ok: boolean; detail: string 
     const { rows } = await query(`SELECT 1 AS ok`, []);
     if (!rows[0]) return { ok: false, detail: `Connected to ${target} but the probe returned no rows.` };
     await ensureSchema(query);
-    return { ok: true, detail: `Connected to ${target}; tables ready.` };
+    const via = postgresProvider() === "neon" ? " via Neon serverless" : "";
+    return { ok: true, detail: `Connected to ${target}${via}; tables ready.` };
   } catch (err) {
     return { ok: false, detail: err instanceof Error ? err.message : String(err) };
   }

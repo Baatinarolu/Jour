@@ -39,11 +39,13 @@ There is deliberately no account system, cloud database, broker connection, orde
 
 ### TradingView integration
 
-- The **Chart** view uses TradingView's official Advanced Chart widget with symbol changes, date ranges, browser timezone, save-image support, and a watchlist generated from symbols already present in your journal.
+- The **Chart** view is a full-viewport live workspace using TradingView's official Advanced Chart widget. It fills the app window by default, has quick timeframe controls (5m by default), and offers a true browser **Full screen** mode with an in-app expanded fallback when a browser or preview blocks the Fullscreen API.
+- Hide the journal side panel for a chart-only workspace, or show it when you want the selected entry beside the live chart. The TradingView watchlist generated from journal symbols is optional and off by default so it does not shrink the candles.
 - Each trade can carry an exact exchange-qualified TradingView symbol such as `NASDAQ:NVDA`, `CME_MINI:ES1!`, `FX:EURUSD`, or `BINANCE:BTCUSDT`.
 - Common journal shorthand is mapped for futures, forex, crypto majors, common indices, gold, silver, and oil. If the mapping is wrong for your broker/feed, edit `tvSymbol` on the trade.
-- **Load journal symbol** opens the selected entry beside its entry/exit/stop/target, P&L, R, duration, emotions, reasons, mistake, lesson, and saved screenshots.
-- **Open in TradingView** creates a full chart link with the selected symbol and interval.
+- Selecting a journal entry loads its symbol while preserving the live timeframe you are using; the panel can switch back to the entry's recorded timeframe when needed.
+- **TradingView app** creates a full chart link with the selected symbol and interval.
+- Embedded-widget data can be delayed for some exchanges. That is a TradingView widget/feed limitation, not a static screenshot: forex and crypto are commonly real-time, while many stock/futures feeds are delayed unless opened in TradingView with the required data permissions.
 - Privacy boundary: TradingView receives only the chart symbol/interval/watchlist needed to render its widget. Your notes, screenshots, size, account label, and P&L are not sent by SANTANDC.
 
 ### Import, export, and backup

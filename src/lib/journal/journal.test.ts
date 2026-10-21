@@ -295,6 +295,7 @@ test("TradingView mapping handles common journal shorthand and preserves exact s
   assert.equal(inferTradingViewSymbol("BTC", "crypto"), "BINANCE:BTCUSDT");
   assert.equal(inferTradingViewSymbol("AAPL", "stocks", "NASDAQ:AAPL"), "NASDAQ:AAPL");
   assert.equal(tradingViewInterval("4H"), "240");
+  assert.equal(tradingViewInterval(""), "5");
   assert.match(
     tradingViewChartUrl(makeTrade({ symbol: "NVDA", tvSymbol: "NASDAQ:NVDA", timeframe: "15m" })),
     /symbol=NASDAQ%3ANVDA.*interval=15/,

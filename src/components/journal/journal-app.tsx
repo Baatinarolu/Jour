@@ -69,7 +69,7 @@ export function JournalApp() {
   const titles: Record<JournalView, string> = {
     overview: "Overview",
     trades: "Trades",
-    chart: "Chart review",
+    chart: "Live chart",
     review: "Review",
     rules: "Rules & playbooks",
   };
@@ -179,16 +179,24 @@ export function JournalApp() {
           </nav>
         </header>
 
-        <main className={cn("mx-auto w-full px-4 py-6 md:px-8 md:py-8", view === "chart" ? "max-w-[110rem]" : "max-w-5xl")}>
-          <div className="mb-6 hidden items-center justify-between md:flex">
-            <h1 className="text-sm font-medium text-muted">{titles[view]}</h1>
-          </div>
+        <main
+          className={cn(
+            view === "chart"
+              ? "w-full max-w-none p-0"
+              : "mx-auto w-full max-w-5xl px-4 py-6 md:px-8 md:py-8",
+          )}
+        >
+          {view !== "chart" ? (
+            <div className="mb-6 hidden items-center justify-between md:flex">
+              <h1 className="text-sm font-medium text-muted">{titles[view]}</h1>
+            </div>
+          ) : null}
 
           {!ready ? (
             <p className="text-sm text-muted">Opening your journal…</p>
           ) : (
             <>
-              {sampleBanner ? (
+              {sampleBanner && view !== "chart" ? (
                 <div className="mb-6 flex flex-col gap-3 rounded-xl border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
                   <p className="text-sm text-muted">
                     Sample book, so the review has something to read. It is not your trading.
@@ -263,7 +271,7 @@ export function JournalApp() {
                 <TradesView trades={trades} query={query} onQuery={setQuery} onEdit={setEditing} playbooks={playbooks} />
               ) : null}
               {view === "chart" ? (
-                <Suspense fallback={<p className="text-sm text-muted">Loading TradingView…</p>}>
+                <Suspense fallback={<p className="p-4 text-sm text-muted">Loading TradingView…</p>}>
                   <ChartView trades={trades} playbooks={playbooks} onEdit={setEditing} onCreate={() => setEditing(null)} />
                 </Suspense>
               ) : null}

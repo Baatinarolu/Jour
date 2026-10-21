@@ -9,7 +9,7 @@ This build was intentionally narrowed to **trade journaling and chart review**. 
 | Emotion journaling | Separate entry and exit emotion, confidence, reasons, mistake, lesson, tags, and execution grade. |
 | Voice journaling | Optional browser dictation/transcript where the browser supports SpeechRecognition. |
 | Chart evidence | Up to three compressed screenshots pasted or uploaded per trade, plus one optional example image per playbook. |
-| Trading chart beside the plan | Official TradingView Advanced Chart embed, journal watchlist, exact per-trade symbol override, symbol inference, interval conversion, and full TradingView deep links. |
+| Trading chart beside the plan | Full-viewport official TradingView Advanced Chart workspace with native full-screen mode, collapsible journal panel, optional journal watchlist, exact per-trade symbol override, symbol inference, interval conversion, and full TradingView deep links. |
 | Playbooks / entry models | Markets, sessions, timeframes, entry criteria checklist, invalidation, management rules, notes, example chart, and per-playbook performance/compliance. |
 | Risk context | Stop-defined planned risk and R, realized RR, optional MAE/MFE and excursion R, stop-aware position-size helper, and off-plan cost. |
 | Performance dashboard | Net P&L, win rate, profit factor, expectancy, payoff, drawdown, streaks, and money/R/% performance switching. |

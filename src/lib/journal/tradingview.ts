@@ -106,7 +106,7 @@ export function tradingViewInterval(timeframe?: string): string {
     case "4H": return "240";
     case "1D": return "D";
     case "1W": return "W";
-    default: return value || "D";
+    default: return value || "5";
   }
 }
 

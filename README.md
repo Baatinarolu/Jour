@@ -1,8 +1,8 @@
-# Folio
+# SANTANDC
 
-Folio is a private trading journal for **closed trades**. It records what happened, what it cost or made, and whether the plan was followed — then turns that history into an equity curve, R statistics, drawdown, rule adherence, and review breakdowns.
+SANTANDC is a private trading journal for **closed trades**. It records what happened, what it cost or made, and whether the plan was followed — then turns that history into an equity curve, R statistics, drawdown, rule adherence, and review breakdowns.
 
-There are no accounts and no cloud sync. Journal data is stored only in the browser's `localStorage` under the key `folio-journal-v1`.
+There are no accounts and no cloud sync. Journal data is stored only in the browser's `localStorage` under the key `santandc-journal-v1` (journals saved under the former `folio-journal-v1` key are migrated automatically).
 
 ## Features
 
@@ -65,6 +65,17 @@ R   = P&L ÷ planned risk from the stop
 
 Legacy futures sample trades were converted from “dollars per point in the size field” to `quantity: 1` with the point value stored as the multiplier, preserving their historical P&L.
 
+## Deploying to Vercel
+
+SANTANDC uses TanStack Start with the Nitro Vercel preset, and `vercel.json` pins Vercel's **TanStack Start** framework preset.
+
+1. Push this repository to GitHub, GitLab, or Bitbucket.
+2. In Vercel, choose **Add New → Project** and import the repository.
+3. Keep the root directory as the repository root and confirm the framework preset is **TanStack Start**.
+4. Deploy. No environment variables are required.
+
+`npm run build` generates Vercel Build Output API artifacts under `.vercel/output/` (static assets plus the server function). The Node.js runtime is pinned through `engines.node` in `package.json`.
+
 ## Project structure
 
 ```text
@@ -81,12 +92,12 @@ scripts/
   preview.mjs          Helper to stop/restart the local production preview on :8081
 public/
   og.jpg               1200×630 social share card
-  favicon.svg          Folio mark
+  favicon.svg          SANTANDC mark
 ```
 
 ## Scope and limitations
 
-Folio intentionally focuses on a private, local-only, closed-trades journal:
+SANTANDC intentionally focuses on a private, local-only, closed-trades journal:
 
 - No sign-in, database, sync, broker connection, or open-position tracking.
 - Views are in-app sections rather than separate URLs.

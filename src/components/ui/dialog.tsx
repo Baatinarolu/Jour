@@ -19,13 +19,13 @@ export function Modal({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="folio-overlay fixed inset-0 z-50" />
-        <Dialog.Content className="folio-dialog rounded-xl border border-border bg-card p-4 shadow-none" aria-describedby={description ? "folio-dialog-desc" : undefined}>
+        <Dialog.Overlay className="santandc-overlay fixed inset-0 z-50" />
+        <Dialog.Content className="santandc-dialog rounded-xl border border-border bg-card p-4 shadow-none" aria-describedby={description ? "santandc-dialog-desc" : undefined}>
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
               <Dialog.Title className="text-lg font-medium tracking-tight">{title}</Dialog.Title>
               {description ? (
-                <Dialog.Description id="folio-dialog-desc" className="mt-1 text-sm text-muted">
+                <Dialog.Description id="santandc-dialog-desc" className="mt-1 text-sm text-muted">
                   {description}
                 </Dialog.Description>
               ) : (

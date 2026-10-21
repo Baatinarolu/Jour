@@ -2,7 +2,7 @@ import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-r
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
 import appCss from "../styles.css?url";
 
-const APP_NAME = "Folio";
+const APP_NAME = "SANTANDC";
 
 export const Route = createRootRoute({
   head: () => ({

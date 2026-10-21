@@ -25,7 +25,7 @@ function Mark() {
   return (
     <svg viewBox="0 0 32 32" className="size-8 shrink-0" aria-hidden="true">
       <rect width="32" height="32" rx="8" className="fill-accent" />
-      <path d="M9 8h14v3.2H13.2V14.6h8.3v3.2h-8.3V24H9V8z" className="fill-accent-foreground" />
+      <path d="M21 10.5c-.8-1.5-2.6-2.5-5-2.5-3 0-5 1.7-5 4.1 0 5.4 10 3.1 10 7.8 0 2.4-2.1 4.1-5.2 4.1-2.6 0-4.6-1.2-5.4-3" fill="none" strokeWidth="3" strokeLinecap="round" className="stroke-accent-foreground" />
     </svg>
   );
 }
@@ -69,7 +69,7 @@ export function JournalApp() {
         <div className="flex items-center gap-3 px-2">
           <Mark />
           <div>
-            <p className="text-base font-medium tracking-tight">Folio</p>
+            <p className="text-base font-medium tracking-tight">SANTANDC</p>
             <p className="text-sm text-subtle">Private journal</p>
           </div>
         </div>
@@ -112,7 +112,7 @@ export function JournalApp() {
           <div className="flex h-14 items-center justify-between gap-3 px-4">
             <div className="flex items-center gap-2">
               <Mark />
-              <p className="text-base font-medium tracking-tight">Folio</p>
+              <p className="text-base font-medium tracking-tight">SANTANDC</p>
             </div>
             <div className="flex items-center">
               <button

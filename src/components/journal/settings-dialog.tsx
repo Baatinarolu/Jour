@@ -106,7 +106,7 @@ export function SettingsDialog({
               const url = URL.createObjectURL(blob);
               const link = document.createElement("a");
               link.href = url;
-              link.download = `folio-${format(new Date(), "yyyy-MM-dd")}.json`;
+              link.download = `santandc-${format(new Date(), "yyyy-MM-dd")}.json`;
               link.click();
               URL.revokeObjectURL(url);
             }}
@@ -127,7 +127,7 @@ export function SettingsDialog({
               if (!file) return;
               const parsed = parseBackup(await file.text());
               if (!parsed.ok) {
-                setError("That file isn’t a Folio backup.");
+                setError("That file isn’t a SANTANDC backup.");
                 setPending(null);
                 return;
               }
@@ -147,7 +147,7 @@ export function SettingsDialog({
               const url = URL.createObjectURL(blob);
               const link = document.createElement("a");
               link.href = url;
-              link.download = `folio-trades-${format(new Date(), "yyyy-MM-dd")}.csv`;
+              link.download = `santandc-trades-${format(new Date(), "yyyy-MM-dd")}.csv`;
               link.click();
               URL.revokeObjectURL(url);
             }}

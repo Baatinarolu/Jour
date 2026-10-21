@@ -435,11 +435,11 @@ export function TradeDialog({
             <TextField
               id="setup"
               value={draft.setup}
-              list="folio-setups"
+              list="santandc-setups"
               onChange={(event) => set("setup", event.target.value)}
               placeholder="Pullback"
             />
-            <datalist id="folio-setups">
+            <datalist id="santandc-setups">
               {[...new Set(["Pullback", "Breakout", "Opening drive", "Mean revert", "Reversal", ...setups])].map(
                 (setup) => (
                   <option key={setup} value={setup} />

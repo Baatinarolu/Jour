@@ -4,6 +4,20 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { buildSample } from "./sample";
 import type { Checks, JournalBackup, Rule, Trade } from "./types";
 
+const JOURNAL_STORAGE_KEY = "santandc-journal-v1";
+const LEGACY_JOURNAL_STORAGE_KEY = "folio-journal-v1";
+
+/** Preserve journals saved before the SANTANDC rename. */
+function migrateLegacyStorageKey() {
+  try {
+    if (localStorage.getItem(JOURNAL_STORAGE_KEY)) return;
+    const legacy = localStorage.getItem(LEGACY_JOURNAL_STORAGE_KEY);
+    if (legacy) localStorage.setItem(JOURNAL_STORAGE_KEY, legacy);
+  } catch {
+    // Storage may be unavailable in a restricted browser context.
+  }
+}
+
 type JournalState = {
   trades: Trade[];
   rules: Rule[];
@@ -112,7 +126,7 @@ export const useJournal = create<JournalState>()(
         }),
     }),
     {
-      name: "folio-journal-v1",
+      name: JOURNAL_STORAGE_KEY,
       version: 1,
       migrate: (persistedState, version) => {
         if (version >= 1) return persistedState as JournalState;
@@ -145,6 +159,7 @@ export const useJournal = create<JournalState>()(
 export function useHydrateJournal(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {
+    migrateLegacyStorageKey();
     let cancel = false;
     const finish = () => {
       if (cancel) return;

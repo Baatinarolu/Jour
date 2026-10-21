@@ -186,26 +186,52 @@ export type GroupStat = {
   count: number;
   wins: number;
   winRate: number | null;
+  totalR: number;
+  avgR: number | null;
+  rCount: number;
+  grossProfit: number;
+  grossLoss: number;
+  profitFactor: number | null;
 };
 
 function summarizeGroup(key: string, list: readonly Trade[]): GroupStat {
   let net = 0;
   let wins = 0;
   let decisive = 0;
+  let totalR = 0;
+  let rCount = 0;
+  let grossProfit = 0;
+  let grossLoss = 0;
   for (const t of list) {
     const pnl = tradePnl(t);
     net += pnl;
     if (pnl > 0) {
       wins += 1;
       decisive += 1;
-    } else if (pnl < 0) decisive += 1;
+      grossProfit += pnl;
+    } else if (pnl < 0) {
+      decisive += 1;
+      grossLoss += pnl;
+    }
+    const r = tradeR(t);
+    if (r != null && Number.isFinite(r)) {
+      totalR += r;
+      rCount += 1;
+    }
   }
+  const lossAbs = Math.abs(grossLoss);
   return {
     key,
     net: moneyRound(net),
     count: list.length,
     wins,
     winRate: decisive ? wins / decisive : null,
+    totalR,
+    avgR: rCount ? totalR / rCount : null,
+    rCount,
+    grossProfit: moneyRound(grossProfit),
+    grossLoss: moneyRound(grossLoss),
+    profitFactor: lossAbs === 0 ? (grossProfit > 0 ? Number.POSITIVE_INFINITY : null) : grossProfit / lossAbs,
   };
 }
 
@@ -280,6 +306,12 @@ export function planSplit(trades: Trade[]): { on: GroupStat; off: GroupStat } {
     count: 0,
     wins: 0,
     winRate: null,
+    totalR: 0,
+    avgR: null,
+    rCount: 0,
+    grossProfit: 0,
+    grossLoss: 0,
+    profitFactor: null,
   });
   return {
     on: groups.find((g) => g.key === "on") ?? empty("on"),
@@ -289,15 +321,111 @@ export function planSplit(trades: Trade[]): { on: GroupStat; off: GroupStat } {
 
 export function matchesQuery(
   t: Trade,
-  query: { q: string; result: "all" | "wins" | "losses" | "offplan"; day: string | null },
+  query: { q: string; result: "all" | "wins" | "losses" | "offplan" | "breakeven" | "unreviewed"; day: string | null },
 ): boolean {
   if (query.day && dayKey(t.closedAt) !== query.day) return false;
   const pnl = tradePnl(t);
   if (query.result === "wins" && pnl <= 0) return false;
   if (query.result === "losses" && pnl >= 0) return false;
+  if (query.result === "breakeven" && pnl !== 0) return false;
   if (query.result === "offplan" && t.followedPlan) return false;
+  if (
+    query.result === "unreviewed" &&
+    Boolean(t.lesson?.trim() || t.notes.trim()) &&
+    Boolean(t.entryEmotion) &&
+    Boolean(t.screenshots?.length)
+  ) {
+    return false;
+  }
   const q = query.q.trim().toLowerCase();
   if (!q) return true;
-  const hay = [t.symbol, t.setup, t.notes, t.market, t.side, ...t.tags].join(" ").toLowerCase();
+  const hay = [
+    t.symbol,
+    t.setup,
+    t.notes,
+    t.market,
+    t.side,
+    t.timeframe ?? "",
+    t.entryEmotion ?? "",
+    t.exitEmotion ?? "",
+    t.mistake ?? "",
+    t.lesson ?? "",
+    t.entryReason ?? "",
+    t.exitReason ?? "",
+    t.voiceNote ?? "",
+    t.account ?? "",
+    t.tvSymbol ?? "",
+    ...t.tags,
+  ]
+    .join(" ")
+    .toLowerCase();
   return hay.includes(q);
+}
+
+export function tradeDurationMinutes(t: Pick<Trade, "openedAt" | "closedAt">): number | null {
+  const start = Date.parse(t.openedAt);
+  const end = Date.parse(t.closedAt);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return null;
+  return (end - start) / 60000;
+}
+
+export type PerformanceMode = "money" | "r" | "pct";
+
+export type PerformancePoint = EquityPoint & { value: number; dayValue: number };
+
+/** Daily performance series in account currency, cumulative R, or return on starting balance. */
+export function buildPerformanceSeries(
+  trades: Trade[],
+  start: number,
+  mode: PerformanceMode,
+): PerformancePoint[] {
+  const equityPoints = buildEquity(trades, start);
+  if (mode === "money") {
+    return equityPoints.map((point) => ({ ...point, value: point.equity, dayValue: point.dayPnl }));
+  }
+
+  const byDay = new Map<string, { pnl: number; r: number }>();
+  for (const trade of trades) {
+    const key = dayKey(trade.closedAt);
+    const current = byDay.get(key) ?? { pnl: 0, r: 0 };
+    current.pnl = moneyRound(current.pnl + tradePnl(trade));
+    current.r += tradeR(trade) ?? 0;
+    byDay.set(key, current);
+  }
+
+  let cumulativeR = 0;
+  return equityPoints.map((point) => {
+    if (point.key === "start") return { ...point, value: 0, dayValue: 0 };
+    const day = byDay.get(point.key) ?? { pnl: point.dayPnl, r: 0 };
+    cumulativeR += day.r;
+    const value = mode === "r" ? cumulativeR : start > 0 ? (point.equity - start) / start : 0;
+    const dayValue = mode === "r" ? day.r : start > 0 ? day.pnl / start : 0;
+    return { ...point, value, dayValue };
+  });
+}
+
+/** Stable identity for suppressing duplicate CSV re-imports. */
+export function tradeFingerprint(t: Trade): string {
+  return [
+    t.externalId?.trim().toLowerCase() ?? "",
+    t.account?.trim().toLowerCase() ?? "",
+    t.symbol.trim().toUpperCase(),
+    t.side,
+    t.openedAt,
+    t.closedAt,
+    t.entry,
+    t.exit,
+    t.quantity,
+    t.multiplier,
+  ].join("|");
+}
+
+export function excursionR(t: Trade): { maeR: number | null; mfeR: number | null } {
+  const risk = tradeRisk(t);
+  if (risk == null || risk === 0) return { maeR: null, mfeR: null };
+  const unitRisk = risk / (t.quantity * multiplierOf(t));
+  if (!Number.isFinite(unitRisk) || unitRisk <= 0) return { maeR: null, mfeR: null };
+  const maeR = t.mae == null ? null : (t.side === "long" ? t.entry - t.mae : t.mae - t.entry) / unitRisk;
+  const mfeR = t.mfe == null ? null : (t.side === "long" ? t.mfe - t.entry : t.entry - t.mfe) / unitRisk;
+  return { maeR, mfeR };
 }

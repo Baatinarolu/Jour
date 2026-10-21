@@ -1,12 +1,38 @@
-export const MARKETS = ["stocks", "options", "futures", "forex", "crypto"] as const;
+export const MARKETS = [
+  "stocks",
+  "options",
+  "futures",
+  "forex",
+  "crypto",
+  "indices",
+  "commodities",
+  "metals",
+] as const;
 export const SIDES = ["long", "short"] as const;
-export const SESSIONS = ["asia", "london", "newyork", "other"] as const;
-export const GRADES = ["A", "B", "C", "F"] as const;
+export const SESSIONS = ["asia", "london", "overlap", "newyork", "other"] as const;
+export const GRADES = ["A+", "A", "B", "C", "D", "F"] as const;
+export const EMOTIONS = [
+  "calm",
+  "focused",
+  "confident",
+  "neutral",
+  "anxious",
+  "fearful",
+  "fomo",
+  "frustrated",
+  "revenge",
+  "bored",
+  "tired",
+  "euphoric",
+] as const;
+export const TIMEFRAMES = ["1m", "5m", "15m", "30m", "1H", "4H", "1D", "1W"] as const;
 
 export type Market = (typeof MARKETS)[number];
 export type Side = (typeof SIDES)[number];
 export type Session = (typeof SESSIONS)[number];
 export type Grade = (typeof GRADES)[number];
+export type Emotion = (typeof EMOTIONS)[number];
+export type TradeSource = "manual" | "csv" | "sample";
 
 export type Trade = {
   id: string;
@@ -28,6 +54,31 @@ export type Trade = {
   followedPlan: boolean;
   notes: string;
   tags: string[];
+
+  /** Rich journal fields. Optional so older local journals keep working. */
+  account?: string;
+  playbookId?: string | null;
+  target?: number | null;
+  timeframe?: string;
+  /** Optional exchange-qualified TradingView symbol, e.g. NASDAQ:NVDA. */
+  tvSymbol?: string;
+  entryEmotion?: Emotion;
+  exitEmotion?: Emotion;
+  confidence?: number;
+  mistake?: string;
+  lesson?: string;
+  entryReason?: string;
+  exitReason?: string;
+  screenshots?: string[];
+  voiceNote?: string;
+  criteriaChecked?: string[];
+  /** Lowest / highest favorable prices reached, when the trader records them. */
+  mae?: number | null;
+  mfe?: number | null;
+  source?: TradeSource;
+  externalId?: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 const FUTURES_MULTIPLIERS: Record<string, number> = {
@@ -84,18 +135,38 @@ export type Rule = {
 
 export type Checks = Record<string, string[]>;
 
+/** A documented setup used to make “followed the plan” measurable. */
+export type Playbook = {
+  id: string;
+  name: string;
+  description: string;
+  markets: Market[];
+  sessions: Session[];
+  timeframes: string[];
+  entryCriteria: string[];
+  invalidation: string;
+  managementRules: string[];
+  notes: string;
+  /** One optional example image, stored locally as a data URL. */
+  exampleScreenshot: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type JournalBackup = {
-  version: 2;
+  version: 3;
   startingBalance: number;
   trades: Trade[];
   rules: Rule[];
   checks: Checks;
   sampleBanner: boolean;
+  playbooks: Playbook[];
+  activePlaybookId: string | null;
 };
 
-export type JournalView = "overview" | "trades" | "review" | "rules";
+export type JournalView = "overview" | "trades" | "chart" | "review" | "rules";
 
-export type ResultFilter = "all" | "wins" | "losses" | "offplan";
+export type ResultFilter = "all" | "wins" | "losses" | "offplan" | "breakeven" | "unreviewed";
 
 export type TradeQuery = {
   q: string;

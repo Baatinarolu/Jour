@@ -1,6 +1,8 @@
-import { matchesQuery, tradePnl, tradeR } from "@/lib/journal/calc";
+import { matchesQuery, tradeDurationMinutes, tradePnl, tradeR } from "@/lib/journal/calc";
 import {
+  emotionLabel,
   formatDay,
+  formatDuration,
   formatMoney,
   formatPrice,
   formatQty,
@@ -10,15 +12,18 @@ import {
   sessionLabel,
   sideLabel,
 } from "@/lib/journal/format";
-import type { ResultFilter, Trade, TradeQuery } from "@/lib/journal/types";
+import { EMOTIONS, type Playbook, type ResultFilter, type Trade, type TradeQuery } from "@/lib/journal/types";
 import { cn } from "@/lib/utils";
 import { format, parseISO } from "date-fns";
+import { useMemo, useState } from "react";
 
 const FILTERS: { id: ResultFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "wins", label: "Wins" },
   { id: "losses", label: "Losses" },
   { id: "offplan", label: "Off plan" },
+  { id: "breakeven", label: "Flat" },
+  { id: "unreviewed", label: "Needs review" },
 ];
 
 function Chip({
@@ -50,16 +55,38 @@ export function TradesView({
   query,
   onQuery,
   onEdit,
+  playbooks = [],
 }: {
   trades: Trade[];
   query: TradeQuery;
   onQuery: (next: TradeQuery) => void;
   onEdit: (trade: Trade) => void;
+  playbooks?: Playbook[];
 }) {
-  const sorted = [...trades].sort(
-    (a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime(),
-  );
-  const visible = sorted.filter((trade) => matchesQuery(trade, query));
+  const [accountFilter, setAccountFilter] = useState("all");
+  const [emotionFilter, setEmotionFilter] = useState("all");
+  const [playbookFilter, setPlaybookFilter] = useState("all");
+  const [sort, setSort] = useState("newest");
+
+  const accounts = useMemo(() => [...new Set(trades.map((trade) => trade.account?.trim() || "Main"))].sort(), [trades]);
+  const visible = useMemo(() => {
+    const filtered = trades.filter((trade) => {
+      if (!matchesQuery(trade, query)) return false;
+      if (accountFilter !== "all" && (trade.account?.trim() || "Main") !== accountFilter) return false;
+      if (emotionFilter !== "all" && trade.entryEmotion !== emotionFilter) return false;
+      if (playbookFilter !== "all" && trade.playbookId !== playbookFilter) return false;
+      return true;
+    });
+    return filtered.sort((a, b) => {
+      if (sort === "oldest") return Date.parse(a.closedAt) - Date.parse(b.closedAt);
+      if (sort === "pnl-desc") return tradePnl(b) - tradePnl(a);
+      if (sort === "pnl-asc") return tradePnl(a) - tradePnl(b);
+      if (sort === "r-desc") return (tradeR(b) ?? -Infinity) - (tradeR(a) ?? -Infinity);
+      if (sort === "duration") return (tradeDurationMinutes(b) ?? 0) - (tradeDurationMinutes(a) ?? 0);
+      return Date.parse(b.closedAt) - Date.parse(a.closedAt);
+    });
+  }, [accountFilter, emotionFilter, playbookFilter, query, sort, trades]);
+  const visibleNet = visible.reduce((sum, trade) => sum + tradePnl(trade), 0);
 
   return (
     <div>
@@ -83,6 +110,31 @@ export function TradesView({
           ))}
         </div>
       </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <select value={accountFilter} onChange={(event) => setAccountFilter(event.target.value)} aria-label="Filter by account" className="h-11 rounded-sm border border-border bg-card px-3 text-sm">
+          <option value="all">All accounts</option>
+          {accounts.map((account) => <option key={account} value={account}>{account}</option>)}
+        </select>
+        <select value={playbookFilter} onChange={(event) => setPlaybookFilter(event.target.value)} aria-label="Filter by playbook" className="h-11 rounded-sm border border-border bg-card px-3 text-sm">
+          <option value="all">All playbooks</option>
+          {playbooks.map((playbook) => <option key={playbook.id} value={playbook.id}>{playbook.name}</option>)}
+        </select>
+        <select value={emotionFilter} onChange={(event) => setEmotionFilter(event.target.value)} aria-label="Filter by entry emotion" className="h-11 rounded-sm border border-border bg-card px-3 text-sm">
+          <option value="all">All entry emotions</option>
+          {EMOTIONS.map((emotion) => <option key={emotion} value={emotion}>{emotionLabel(emotion)}</option>)}
+        </select>
+        <select value={sort} onChange={(event) => setSort(event.target.value)} aria-label="Sort trades" className="h-11 rounded-sm border border-border bg-card px-3 text-sm">
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="pnl-desc">Highest P&L</option>
+          <option value="pnl-asc">Lowest P&L</option>
+          <option value="r-desc">Highest R</option>
+          <option value="duration">Longest held</option>
+        </select>
+      </div>
+      <p className="mt-3 text-sm text-subtle">
+        Showing {visible.length} of {trades.length} trades · <span className={`font-mono tabular-nums ${visibleNet > 0 ? "text-up" : visibleNet < 0 ? "text-down" : "text-muted"}`}>{formatMoney(visibleNet)}</span>
+      </p>
       {query.day ? (
         <div className="mt-3">
           <Chip active onClick={() => onQuery({ ...query, day: null })}>
@@ -108,11 +160,13 @@ export function TradesView({
                     <span className="min-w-0">
                       <span className="block text-sm font-medium">{trade.symbol}</span>
                       <span className="mt-1 block text-sm text-muted">
-                        {sideLabel(trade.side)} · {trade.setup || "No setup"} · {trade.grade}
+                        {sideLabel(trade.side)} · {trade.setup || "No setup"} · {trade.grade}{trade.timeframe ? ` · ${trade.timeframe}` : ""}
                       </span>
                       <span className="mt-1 block text-sm text-subtle">
-                        {formatDay(trade.closedAt)} · {sessionLabel(trade.session)}
+                        {formatDay(trade.closedAt)} · {sessionLabel(trade.session)} · {formatDuration(tradeDurationMinutes(trade))}
+                        {trade.entryEmotion ? ` · ${emotionLabel(trade.entryEmotion)}` : ""}{trade.screenshots?.length ? ` · ${trade.screenshots.length} chart${trade.screenshots.length > 1 ? "s" : ""}` : ""}
                       </span>
+                      {trade.mistake ? <span className="mt-1 block truncate text-sm text-down">{trade.mistake}</span> : null}
                     </span>
                     <span className="text-right">
                       <span className={`block font-mono text-sm tabular-nums ${pnlClass(pnl)}`}>
@@ -155,9 +209,11 @@ export function TradesView({
                         </span>
                       </span>
                       <span className="text-muted">{sideLabel(trade.side)}</span>
-                      <span className="truncate">
-                        {trade.setup || "No setup"}
-                        <span className="text-subtle"> · {marketLabel(trade.market)}</span>
+                      <span className="min-w-0">
+                        <span className="block truncate">{trade.setup || "No setup"}<span className="text-subtle"> · {marketLabel(trade.market)}</span></span>
+                        <span className="mt-0.5 block truncate text-subtle">
+                          {(trade.account || "Main")} · {formatDuration(tradeDurationMinutes(trade))}{trade.entryEmotion ? ` · ${emotionLabel(trade.entryEmotion)}` : ""}{trade.screenshots?.length ? ` · ${trade.screenshots.length} chart${trade.screenshots.length > 1 ? "s" : ""}` : ""}{trade.mistake ? ` · ${trade.mistake}` : ""}
+                        </span>
                       </span>
                       <span className={`text-right font-mono tabular-nums ${pnlClass(pnl)}`}>
                         {formatMoney(pnl)}

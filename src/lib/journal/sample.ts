@@ -1,4 +1,5 @@
-import type { Rule, Trade } from "./types";
+import { presetPlaybooks } from "./playbooks.ts";
+import type { Emotion, Playbook, Rule, Trade } from "./types.ts";
 
 function iso(daysAgo: number, hour: number, minute = 0): string {
   const d = new Date();
@@ -30,7 +31,7 @@ export const SAMPLE_RULES: Rule[] = [
   { id: "r5", text: "Write the lesson before the next order." },
 ];
 
-export function buildSample(): { trades: Trade[]; rules: Rule[] } {
+export function buildSample(): { trades: Trade[]; rules: Rule[]; playbooks: Playbook[]; activePlaybookId: string | null } {
   const trades: Trade[] = [
     dayTrade({
       id: "t-aapl-1",
@@ -433,5 +434,56 @@ export function buildSample(): { trades: Trade[]; rules: Rule[] } {
     }),
   ];
 
-  return { trades, rules: SAMPLE_RULES.map((rule) => ({ ...rule })) };
+  const playbooks = presetPlaybooks();
+  const playbookFor = (setup: string): string => {
+    if (/pullback/i.test(setup)) return "playbook-trend-pullback";
+    if (/opening|breakout/i.test(setup)) return "playbook-opening-range";
+    return "playbook-liquidity-reversal";
+  };
+  const emotionFor = (trade: Trade): { entry: Emotion; exit: Emotion; mistake: string } => {
+    if (trade.tags.includes("oversize")) return { entry: "euphoric", exit: "frustrated", mistake: "Oversized after a winner" };
+    if (trade.tags.includes("late entry")) return { entry: "fomo", exit: "frustrated", mistake: "Chased a late entry" };
+    if (trade.tags.includes("held loser")) return { entry: "anxious", exit: "frustrated", mistake: "Held through the stop" };
+    if (trade.tags.includes("unplanned")) return { entry: "bored", exit: "neutral", mistake: "Traded outside the watchlist" };
+    return { entry: trade.grade === "A" || trade.grade === "A+" ? "focused" : "calm", exit: "neutral", mistake: "" };
+  };
+  const enriched = trades.map((trade) => {
+    const emotions = emotionFor(trade);
+    const riskDistance = trade.stop == null ? 0 : Math.abs(trade.entry - trade.stop);
+    const target = trade.stop == null ? null : trade.side === "long" ? trade.entry + riskDistance * 2 : trade.entry - riskDistance * 2;
+    const playbook = playbooks.find((item) => item.id === playbookFor(trade.setup));
+    const roundPrice = (value: number) => Math.round(value * 10000) / 10000;
+    const mae = trade.stop == null
+      ? null
+      : roundPrice(trade.side === "long" ? Math.min(trade.entry - riskDistance * 0.35, trade.exit) : Math.max(trade.entry + riskDistance * 0.35, trade.exit));
+    const mfe = trade.stop == null
+      ? null
+      : roundPrice(trade.side === "long" ? Math.max(trade.entry + riskDistance * 0.6, trade.exit) : Math.min(trade.entry - riskDistance * 0.6, trade.exit));
+    return {
+      ...trade,
+      account: "Main",
+      playbookId: playbook?.id ?? null,
+      target: target == null ? null : Math.round(target * 10000) / 10000,
+      timeframe: playbook?.timeframes[0] ?? "15m",
+      entryEmotion: emotions.entry,
+      exitEmotion: emotions.exit,
+      confidence: trade.grade === "A+" || trade.grade === "A" ? 5 : trade.grade === "B" ? 4 : trade.grade === "C" ? 2 : 1,
+      mistake: emotions.mistake,
+      lesson: trade.notes,
+      entryReason: `${trade.setup || "Planned setup"} at the marked level during the ${trade.session} session.`,
+      exitReason: "Exited at the recorded close; see lesson for management quality.",
+      criteriaChecked: trade.followedPlan ? (playbook?.entryCriteria ?? []) : (playbook?.entryCriteria.slice(0, 2) ?? []),
+      mae,
+      mfe,
+      screenshots: [],
+      source: "sample" as const,
+    };
+  });
+
+  return {
+    trades: enriched,
+    rules: SAMPLE_RULES.map((rule) => ({ ...rule })),
+    playbooks,
+    activePlaybookId: playbooks[0]?.id ?? null,
+  };
 }

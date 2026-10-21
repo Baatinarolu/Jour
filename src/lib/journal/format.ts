@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import type { Grade, Market, Session, Side } from "./types";
+import type { Emotion, Grade, Market, Session, Side } from "./types.ts";
 
 export function moneyRound(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100;
@@ -92,13 +92,32 @@ const MARKET_LABEL: Record<Market, string> = {
   futures: "Futures",
   forex: "Forex",
   crypto: "Crypto",
+  indices: "Indices",
+  commodities: "Commodities",
+  metals: "Metals",
 };
 
 const SESSION_LABEL: Record<Session, string> = {
   asia: "Asia",
   london: "London",
+  overlap: "London / NY overlap",
   newyork: "New York",
   other: "Other",
+};
+
+const EMOTION_LABEL: Record<Emotion, string> = {
+  calm: "Calm",
+  focused: "Focused",
+  confident: "Confident",
+  neutral: "Neutral",
+  anxious: "Anxious",
+  fearful: "Fearful",
+  fomo: "FOMO",
+  frustrated: "Frustrated",
+  revenge: "Revenge",
+  bored: "Bored",
+  tired: "Tired",
+  euphoric: "Euphoric",
 };
 
 const SIDE_LABEL: Record<Side, string> = {
@@ -120,4 +139,31 @@ export function sideLabel(s: Side): string {
 
 export function gradeLabel(g: Grade): string {
   return g;
+}
+
+export function emotionLabel(e: Emotion): string {
+  return EMOTION_LABEL[e];
+}
+
+export function formatSignedPct(ratio: number | null): string {
+  if (ratio == null || !Number.isFinite(ratio)) return "—";
+  const sign = ratio > 0 ? "+" : ratio < 0 ? "−" : "";
+  return `${sign}${Math.abs(ratio * 100).toFixed(2)}%`;
+}
+
+export function formatDuration(minutes: number | null): string {
+  if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return "—";
+  if (minutes < 60) return `${Math.round(minutes)}m`;
+  if (minutes < 60 * 24) {
+    const hours = Math.floor(minutes / 60);
+    const rest = Math.round(minutes % 60);
+    return rest ? `${hours}h ${rest}m` : `${hours}h`;
+  }
+  const days = Math.floor(minutes / (60 * 24));
+  const hours = Math.round((minutes % (60 * 24)) / 60);
+  return hours ? `${days}d ${hours}h` : `${days}d`;
+}
+
+export function formatDateTime(iso: string): string {
+  return format(new Date(iso), "MMM d, HH:mm");
 }

@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import { buildSample } from "./sample";
-import type { Checks, JournalBackup, Rule, Trade } from "./types";
+import { tradeFingerprint } from "./calc.ts";
+import { presetPlaybooks } from "./playbooks.ts";
+import { buildSample } from "./sample.ts";
+import type { Checks, JournalBackup, Playbook, Rule, Trade } from "./types.ts";
 
 const JOURNAL_STORAGE_KEY = "santandc-journal-v1";
 const LEGACY_JOURNAL_STORAGE_KEY = "folio-journal-v1";
@@ -25,6 +27,8 @@ type JournalState = {
   startingBalance: number;
   initialized: boolean;
   sampleBanner: boolean;
+  playbooks: Playbook[];
+  activePlaybookId: string | null;
   addTrade: (trade: Trade) => void;
   updateTrade: (trade: Trade) => void;
   deleteTrade: (id: string) => void;
@@ -38,6 +42,10 @@ type JournalState = {
   dismissSample: () => void;
   replaceAll: (data: JournalBackup) => void;
   importTrades: (incoming: Trade[]) => void;
+  addPlaybook: (playbook: Playbook) => void;
+  updatePlaybook: (playbook: Playbook) => void;
+  deletePlaybook: (id: string) => void;
+  setActivePlaybook: (id: string | null) => void;
 };
 
 export const useJournal = create<JournalState>()(
@@ -49,20 +57,25 @@ export const useJournal = create<JournalState>()(
       startingBalance: 25000,
       initialized: false,
       sampleBanner: false,
+      playbooks: presetPlaybooks(),
+      activePlaybookId: "playbook-trend-pullback",
       addTrade: (trade) =>
         set((s) => ({ trades: [trade, ...s.trades], sampleBanner: false })),
       importTrades: (incoming) =>
         set((s) => {
-          const seen = new Set(s.trades.map((trade) => trade.id));
-          const merged = incoming.map((trade) => {
-            if (!seen.has(trade.id)) {
-              seen.add(trade.id);
-              return trade;
-            }
-            const fresh = { ...trade, id: crypto.randomUUID() };
-            seen.add(fresh.id);
-            return fresh;
-          });
+          const seenIds = new Set(s.trades.map((trade) => trade.id));
+          const seenTrades = new Set(s.trades.map((trade) => tradeFingerprint(trade)));
+          const merged: Trade[] = [];
+          for (const trade of incoming) {
+            const fingerprint = tradeFingerprint(trade);
+            // Re-importing the same broker/CSV file should be a no-op, not a
+            // second copy of the book under fresh IDs.
+            if (seenTrades.has(fingerprint)) continue;
+            const next = seenIds.has(trade.id) ? { ...trade, id: crypto.randomUUID() } : trade;
+            seenIds.add(next.id);
+            seenTrades.add(fingerprint);
+            merged.push(next);
+          }
           return { trades: [...merged, ...s.trades], sampleBanner: false, initialized: true };
         }),
       updateTrade: (trade) =>
@@ -111,6 +124,8 @@ export const useJournal = create<JournalState>()(
           startingBalance: 25000,
           initialized: true,
           sampleBanner: true,
+          playbooks: sample.playbooks,
+          activePlaybookId: sample.activePlaybookId,
         });
       },
       clearTrades: () => set({ trades: [], checks: {}, sampleBanner: false, initialized: true }),
@@ -123,7 +138,28 @@ export const useJournal = create<JournalState>()(
           startingBalance: data.startingBalance,
           sampleBanner: false,
           initialized: true,
+          playbooks: data.playbooks,
+          activePlaybookId: data.activePlaybookId,
         }),
+      addPlaybook: (playbook) =>
+        set((s) => ({
+          playbooks: [...s.playbooks, playbook],
+          activePlaybookId: s.activePlaybookId ?? playbook.id,
+          sampleBanner: false,
+        })),
+      updatePlaybook: (playbook) =>
+        set((s) => ({
+          playbooks: s.playbooks.map((item) => (item.id === playbook.id ? playbook : item)),
+          sampleBanner: false,
+        })),
+      deletePlaybook: (id) =>
+        set((s) => ({
+          playbooks: s.playbooks.filter((item) => item.id !== id),
+          activePlaybookId: s.activePlaybookId === id ? (s.playbooks.find((item) => item.id !== id)?.id ?? null) : s.activePlaybookId,
+          trades: s.trades.map((trade) => (trade.playbookId === id ? { ...trade, playbookId: null } : trade)),
+          sampleBanner: false,
+        })),
+      setActivePlaybook: (id) => set({ activePlaybookId: id }),
     }),
     {
       name: JOURNAL_STORAGE_KEY,
@@ -151,6 +187,8 @@ export const useJournal = create<JournalState>()(
         startingBalance: s.startingBalance,
         initialized: s.initialized,
         sampleBanner: s.sampleBanner,
+        playbooks: s.playbooks,
+        activePlaybookId: s.activePlaybookId,
       }),
     },
   ),

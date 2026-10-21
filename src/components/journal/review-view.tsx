@@ -1,22 +1,40 @@
-import { groupTrades, planSplit, tagGroups, tradePnl } from "@/lib/journal/calc";
-import { dayKey, formatMoney, formatPct, pnlClass, sessionLabel, sideLabel, todayKey } from "@/lib/journal/format";
-import type { Grade, Session, Side, Trade } from "@/lib/journal/types";
+import { JournalInsights } from "@/components/journal/journal-insights";
+import { groupTrades, planSplit, tagGroups, tradeDurationMinutes, tradePnl, type GroupStat, type PerformanceMode } from "@/lib/journal/calc";
+import { dayKey, emotionLabel, formatMoney, formatPct, formatR, formatSignedPct, marketLabel, pnlClass, sessionLabel, sideLabel, todayKey } from "@/lib/journal/format";
+import type { Grade, Playbook, Session, Side, Trade } from "@/lib/journal/types";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { useEffect, useRef, type ReactNode } from "react";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
-const SESSIONS: Session[] = ["asia", "london", "newyork", "other"];
-const GRADES: Grade[] = ["A", "B", "C", "F"];
+const SESSIONS: Session[] = ["asia", "london", "overlap", "newyork", "other"];
+const GRADES: Grade[] = ["A+", "A", "B", "C", "D", "F"];
 const SIDES: Side[] = ["long", "short"];
 
-function Meter({ stat, max }: { stat: { key: string; net: number; count: number; winRate: number | null }; max: number }) {
-  const width = max === 0 ? 0 : Math.min(100, (Math.abs(stat.net) / max) * 100);
+function metricValue(stat: GroupStat, metric: PerformanceMode, startingBalance: number): number {
+  if (metric === "r") return stat.totalR;
+  if (metric === "pct") return startingBalance > 0 ? stat.net / startingBalance : 0;
+  return stat.net;
+}
+
+function metricText(stat: GroupStat, metric: PerformanceMode, startingBalance: number): string {
+  if (metric === "r") return formatR(stat.totalR);
+  if (metric === "pct") return formatSignedPct(metricValue(stat, metric, startingBalance));
+  return formatMoney(stat.net);
+}
+
+function metricMax(stats: readonly GroupStat[], metric: PerformanceMode, startingBalance: number): number {
+  return Math.max(...stats.map((item) => Math.abs(metricValue(item, metric, startingBalance))), 0);
+}
+
+function Meter({ stat, max, metric = "money", startingBalance = 0 }: { stat: GroupStat; max: number; metric?: PerformanceMode; startingBalance?: number }) {
+  const value = metricValue(stat, metric, startingBalance);
+  const width = max === 0 ? 0 : Math.min(100, (Math.abs(value) / max) * 100);
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3">
         <p className="min-w-0 truncate text-sm">{stat.key}</p>
-        <p className={cn("font-mono text-sm tabular-nums", pnlClass(stat.net))}>{formatMoney(stat.net)}</p>
+        <p className={cn("font-mono text-sm tabular-nums", pnlClass(stat.net))}>{metricText(stat, metric, startingBalance)}</p>
       </div>
       <div className="mt-2 h-2 rounded-sm bg-card-2">
         <div
@@ -25,7 +43,7 @@ function Meter({ stat, max }: { stat: { key: string; net: number; count: number;
         />
       </div>
       <p className="mt-1 text-sm text-subtle">
-        {stat.count} trades · {formatPct(stat.winRate)}
+        {stat.count} trades · {formatPct(stat.winRate)} · {formatR(stat.avgR)} avg
       </p>
     </div>
   );
@@ -40,14 +58,22 @@ function Panel({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function ordered(stats: ReturnType<typeof groupTrades>, keys: string[], label: (key: string) => string) {
+function ordered(stats: ReturnType<typeof groupTrades>, keys: string[], label: (key: string) => string): GroupStat[] {
   return keys.map((key) => {
     const found = stats.find((item) => item.key === key);
+    if (found) return { ...found, key: label(key) };
     return {
       key: label(key),
-      net: found?.net ?? 0,
-      count: found?.count ?? 0,
-      winRate: found?.winRate ?? null,
+      net: 0,
+      count: 0,
+      wins: 0,
+      winRate: null,
+      totalR: 0,
+      avgR: null,
+      rCount: 0,
+      grossProfit: 0,
+      grossLoss: 0,
+      profitFactor: null,
     };
   });
 }
@@ -55,9 +81,15 @@ function ordered(stats: ReturnType<typeof groupTrades>, keys: string[], label: (
 export function ReviewView({
   trades,
   onOpenDay,
+  playbooks = [],
+  startingBalance = 0,
+  metric = "money",
 }: {
   trades: Trade[];
   onOpenDay: (day: string) => void;
+  playbooks?: Playbook[];
+  startingBalance?: number;
+  metric?: PerformanceMode;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -71,27 +103,50 @@ export function ReviewView({
 
   const plan = planSplit(trades);
   const setups = groupTrades(trades, (t) => t.setup || "No setup").sort((a, b) => b.net - a.net);
-  const setupMax = Math.max(...setups.map((item) => Math.abs(item.net)), 0);
+  const setupMax = metricMax(setups, metric, startingBalance);
   const symbols = groupTrades(trades, (t) => t.symbol).sort(
     (a, b) => Math.abs(b.net) - Math.abs(a.net),
   );
-  const symbolMax = Math.max(...symbols.slice(0, 6).map((item) => Math.abs(item.net)), 0);
+  const symbolMax = metricMax(symbols.slice(0, 6), metric, startingBalance);
   const weekdays = ordered(
     groupTrades(trades, (t) => String((new Date(t.closedAt).getDay() + 6) % 7)),
     WEEKDAYS.map((_, index) => String(index)),
     (key) => WEEKDAYS[Number(key)],
   );
-  const weekdayMax = Math.max(...weekdays.map((item) => Math.abs(item.net)), 0);
+  const weekdayMax = metricMax(weekdays, metric, startingBalance);
   const sessions = ordered(groupTrades(trades, (t) => t.session), SESSIONS, (key) =>
     sessionLabel(key as Session),
   );
-  const sessionMax = Math.max(...sessions.map((item) => Math.abs(item.net)), 0);
+  const sessionMax = metricMax(sessions, metric, startingBalance);
   const sides = ordered(groupTrades(trades, (t) => t.side), SIDES, (key) => sideLabel(key as Side));
-  const sideMax = Math.max(...sides.map((item) => Math.abs(item.net)), 0);
+  const sideMax = metricMax(sides, metric, startingBalance);
   const grades = ordered(groupTrades(trades, (t) => t.grade), GRADES, (key) => `Grade ${key}`);
-  const gradeMax = Math.max(...grades.map((item) => Math.abs(item.net)), 0);
+  const gradeMax = metricMax(grades, metric, startingBalance);
   const tags = tagGroups(trades);
-  const tagMax = Math.max(...tags.map((item) => Math.abs(item.net)), 0);
+  const tagMax = metricMax(tags, metric, startingBalance);
+
+  const sortGroups = (keyOf: (trade: Trade) => string) => groupTrades(trades, keyOf).sort((a, b) => b.net - a.net);
+  const playbookName = (trade: Trade) => playbooks.find((item) => item.id === trade.playbookId)?.name ?? trade.setup ?? "No playbook";
+  const extraGroups: { title: string; stats: GroupStat[] }[] = [
+    { title: "By playbook", stats: sortGroups(playbookName) },
+    { title: "By account", stats: sortGroups((t) => t.account?.trim() || "Main") },
+    { title: "By market", stats: sortGroups((t) => marketLabel(t.market)) },
+    { title: "By timeframe", stats: sortGroups((t) => t.timeframe || "Untagged") },
+    { title: "Entry emotion", stats: sortGroups((t) => (t.entryEmotion ? emotionLabel(t.entryEmotion) : "Untagged")) },
+    { title: "Exit emotion", stats: sortGroups((t) => (t.exitEmotion ? emotionLabel(t.exitEmotion) : "Untagged")) },
+    { title: "By mistake", stats: sortGroups((t) => t.mistake?.trim() || "None recorded") },
+    { title: "By confidence", stats: sortGroups((t) => (t.confidence ? `${t.confidence}/5` : "Untagged")) },
+    { title: "By opening hour", stats: groupTrades(trades, (t) => `${String(new Date(t.openedAt).getHours()).padStart(2, "0")}:00`).sort((a, b) => a.key.localeCompare(b.key)) },
+    { title: "By holding time", stats: sortGroups((t) => {
+      const minutes = tradeDurationMinutes(t);
+      if (minutes == null) return "Unknown";
+      if (minutes < 15) return "Under 15m";
+      if (minutes < 60) return "15–60m";
+      if (minutes < 240) return "1–4h";
+      if (minutes < 1440) return "4–24h";
+      return "Over 1d";
+    }) },
+  ];
 
   const byDay = new Map<string, number>();
   for (const trade of trades) {
@@ -128,6 +183,7 @@ export function ReviewView({
 
   return (
     <div className="grid gap-3">
+      <JournalInsights trades={trades} playbooks={playbooks} startingBalance={startingBalance} onOpenDay={onOpenDay} />
       <div className="grid gap-3 lg:grid-cols-2">
         <section className="min-w-0 rounded-xl border border-border bg-card p-4">
           <h2 className="text-sm font-medium text-muted">Daily result</h2>
@@ -206,46 +262,59 @@ export function ReviewView({
 
       <Panel title="By setup">
         {setups.map((stat) => (
-          <Meter key={stat.key} stat={stat} max={setupMax} />
+          <Meter key={stat.key} stat={stat} max={setupMax} metric={metric} startingBalance={startingBalance} />
         ))}
       </Panel>
       <Panel title="By symbol">
         {symbols.slice(0, 6).map((stat) => (
-          <Meter key={stat.key} stat={stat} max={symbolMax} />
+          <Meter key={stat.key} stat={stat} max={symbolMax} metric={metric} startingBalance={startingBalance} />
         ))}
       </Panel>
       <div className="grid gap-3 lg:grid-cols-2">
         <Panel title="Weekday">
           {weekdays.map((stat) => (
-            <Meter key={stat.key} stat={stat} max={weekdayMax} />
+            <Meter key={stat.key} stat={stat} max={weekdayMax} metric={metric} startingBalance={startingBalance} />
           ))}
         </Panel>
         <Panel title="Session">
           {sessions.map((stat) => (
-            <Meter key={stat.key} stat={stat} max={sessionMax} />
+            <Meter key={stat.key} stat={stat} max={sessionMax} metric={metric} startingBalance={startingBalance} />
           ))}
         </Panel>
         <Panel title="Side">
           {sides.map((stat) => (
-            <Meter key={stat.key} stat={stat} max={sideMax} />
+            <Meter key={stat.key} stat={stat} max={sideMax} metric={metric} startingBalance={startingBalance} />
           ))}
         </Panel>
         <Panel title="Grade">
           {grades.map((stat) => (
-            <Meter key={stat.key} stat={stat} max={gradeMax} />
+            <Meter key={stat.key} stat={stat} max={gradeMax} metric={metric} startingBalance={startingBalance} />
           ))}
         </Panel>
       </div>
       {tags.length ? (
         <Panel title="Tagged leaks">
           {tags.map((stat) => (
-            <Meter key={stat.key} stat={stat} max={tagMax} />
+            <Meter key={stat.key} stat={stat} max={tagMax} metric={metric} startingBalance={startingBalance} />
           ))}
           <p className="text-sm text-subtle">
             A trade counts under every tag it carries, so these rows can overlap.
           </p>
         </Panel>
       ) : null}
+      <div className="grid gap-3 lg:grid-cols-2">
+        {extraGroups.map((group) => {
+          const max = metricMax(group.stats, metric, startingBalance);
+          return (
+            <Panel key={group.title} title={group.title}>
+              {group.stats.map((stat) => (
+                <Meter key={stat.key} stat={stat} max={max} metric={metric} startingBalance={startingBalance} />
+              ))}
+            </Panel>
+          );
+        })}
+      </div>
+
     </div>
   );
 }

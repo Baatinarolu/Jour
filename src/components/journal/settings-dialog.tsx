@@ -180,13 +180,13 @@ export function SettingsDialog({
           />
         </div>
         <p className="-mt-3 text-sm text-subtle">
-          CSV adds trades to this journal. A backup replaces it.
+          CSV adds trades and automatically skips exact duplicates on re-import. Screenshots live in the JSON backup, not CSV. A backup replaces the journal including playbooks.
         </p>
 
         {pending ? (
           <div className="rounded-sm border border-border bg-background p-4">
             <p className="text-sm">
-              Replace this journal with {pending.trades.length} trades from the file?
+              Replace this journal with {pending.trades.length} trades and {pending.playbooks.length} playbooks from the file?
             </p>
             <div className="mt-3 flex gap-2">
               <Button
@@ -208,7 +208,7 @@ export function SettingsDialog({
         {pendingCsv ? (
           <div className="rounded-sm border border-border bg-background p-4">
             <p className="text-sm">
-              Add {pendingCsv.trades.length} trades from the CSV? Trades already in the journal stay.
+              Add up to {pendingCsv.trades.length} trades from the CSV? Exact duplicates already in the journal will be skipped.
             </p>
             {pendingCsv.errors.length ? (
               <p className="mt-2 text-sm text-muted">
@@ -253,7 +253,7 @@ export function SettingsDialog({
           </div>
         ) : mode === "sample" ? (
           <div className="rounded-sm border border-border bg-background p-4">
-            <p className="text-sm">Replace trades, rules, and balance with the sample book?</p>
+            <p className="text-sm">Replace trades, rules, playbooks, and balance with the sample book?</p>
             <div className="mt-3 flex gap-2">
               <Button
                 variant="danger"

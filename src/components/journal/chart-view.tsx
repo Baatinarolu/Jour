@@ -55,11 +55,13 @@ export function ChartView({
   playbooks,
   onEdit,
   onCreate,
+  active = true,
 }: {
   trades: Trade[];
   playbooks: Playbook[];
   onEdit: (trade: Trade) => void;
   onCreate: () => void;
+  active?: boolean;
 }) {
   const recent = useMemo(
     () => [...trades].sort((a, b) => Date.parse(b.closedAt) - Date.parse(a.closedAt)),
@@ -113,11 +115,11 @@ export function ChartView({
   }, [expanded]);
 
   useEffect(() => {
-    const timers = [60, 280].map((delay) =>
+    const timers = [60, 280, 600].map((delay) =>
       window.setTimeout(() => window.dispatchEvent(new Event("resize")), delay),
     );
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [expanded, panelOpen]);
+  }, [expanded, panelOpen, active]);
 
   const watchlist = useMemo(() => tradingViewWatchlist(recent), [recent]);
   const externalUrl = selected

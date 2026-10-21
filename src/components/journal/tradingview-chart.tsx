@@ -99,10 +99,17 @@ export function TradingViewChart({
       hide_volume: false,
       enable_publishing: false,
       allow_symbol_change: true,
-      // Do not let a previously saved TradingView layout (often AAPL) replace
-      // the symbol SANTANDC explicitly requested for this journal entry.
-      disabled_features: ["use_localstorage_for_settings", "save_chart_properties_to_local_storage"],
-      enabled_features: ["header_in_fullscreen_mode", "side_toolbar_in_fullscreen_mode"],
+      // Persistence stays ON (use_localstorage_for_settings /
+      // save_chart_properties_to_local_storage are NOT disabled): drawings,
+      // indicators, chart settings and favorite tools are stored by
+      // TradingView in this browser and survive reloads and symbol changes.
+      // The journal symbol is still protected by the iframe-settings guard
+      // above, which rewrites the symbol if anything tries to override it.
+      enabled_features: [
+        "items_favoriting",
+        "header_in_fullscreen_mode",
+        "side_toolbar_in_fullscreen_mode",
+      ],
       withdateranges: true,
       details: false,
       hotlist: false,

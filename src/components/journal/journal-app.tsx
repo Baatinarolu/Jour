@@ -10,7 +10,7 @@ import { useHydrateJournal, useJournal } from "@/lib/journal/store";
 import type { JournalView, Trade, TradeQuery } from "@/lib/journal/types";
 import { cn } from "@/lib/utils";
 import { BookOpen, ChartCandlestick, LayoutDashboard, List, Plus, Settings, SquareChartGantt } from "lucide-react";
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
 const ReviewView = lazy(() =>
   import("@/components/journal/review-view").then((module) => ({ default: module.ReviewView })),
@@ -60,6 +60,14 @@ export function JournalApp() {
   const importTrades = useJournal((s) => s.importTrades);
 
   const [view, setView] = useState<JournalView>("overview");
+  const [chartVisited, setChartVisited] = useState(false);
+
+  // Once opened, the TradingView workspace stays mounted (hidden) so the
+  // live chart, its drawings and the selected symbol survive menu switches
+  // instead of reloading from scratch every time.
+  useEffect(() => {
+    if (view === "chart") setChartVisited(true);
+  }, [view]);
   const [editing, setEditing] = useState<Trade | null | undefined>(undefined);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [query, setQuery] = useState<TradeQuery>({ q: "", result: "all", day: null });
@@ -270,10 +278,18 @@ export function JournalApp() {
               {view === "trades" ? (
                 <TradesView trades={trades} query={query} onQuery={setQuery} onEdit={setEditing} playbooks={playbooks} />
               ) : null}
-              {view === "chart" ? (
-                <Suspense fallback={<p className="p-4 text-sm text-muted">Loading TradingView…</p>}>
-                  <ChartView trades={trades} playbooks={playbooks} onEdit={setEditing} onCreate={() => setEditing(null)} />
-                </Suspense>
+              {chartVisited ? (
+                <div className={view === "chart" ? undefined : "hidden"} aria-hidden={view !== "chart"}>
+                  <Suspense fallback={<p className="p-4 text-sm text-muted">Loading TradingView…</p>}>
+                    <ChartView
+                      trades={trades}
+                      playbooks={playbooks}
+                      active={view === "chart"}
+                      onEdit={setEditing}
+                      onCreate={() => setEditing(null)}
+                    />
+                  </Suspense>
+                </div>
               ) : null}
               {view === "review" ? (
                 <Suspense fallback={<p className="text-sm text-muted">Loading review…</p>}>

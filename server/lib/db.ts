@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { JournalBackup } from "../../src/lib/journal/types.ts";
 
 // File driver for local dev + preview. On Vercel's read-only filesystem, /tmp is writable
@@ -22,17 +21,11 @@ export type JournalRecord = {
 };
 
 const DATA_ROOT = (() => {
-  // Prefer env override, then /tmp on Vercel (writable), else server/.data
+  // Prefer env override, then /tmp on Vercel (writable), else server/.data via cwd
+  // Use cwd (repo root in dev/preview, /var/task on Lambda) — not fileURLToPath, which breaks after Nitro bundling
   if (process.env.SANTANDC_DATA_DIR) return process.env.SANTANDC_DATA_DIR;
   if (process.env.VERCEL || process.env.NOW_BUILDER) return "/tmp/santandc";
-  // Resolve relative to repo root
-  try {
-    const thisFile = fileURLToPath(import.meta.url);
-    const repoRoot = path.resolve(path.dirname(thisFile), "../..");
-    return path.join(repoRoot, "server", ".data");
-  } catch {
-    return path.join(process.cwd(), "server", ".data");
-  }
+  return path.join(process.cwd(), "server", ".data");
 })();
 
 const USERS_FILE = path.join(DATA_ROOT, "users.json");

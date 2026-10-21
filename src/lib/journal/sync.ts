@@ -240,7 +240,8 @@ export type ServerHealth = {
     driver?: string;
     persistent?: boolean;
     detail?: string;
-    redis?: { ok?: boolean; detail?: string };
+    probe?: { ok?: boolean; detail?: string };
+    accounts?: number;
   };
   accounts?: number;
   authSecretSet?: boolean;

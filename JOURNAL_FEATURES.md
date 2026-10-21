@@ -5,6 +5,7 @@ This build was intentionally narrowed to **trade journaling and chart review**. 
 | Journal capability | SANTANDC implementation |
 |---|---|
 | Manual trade logging | Full closed-trade form for prices, quantity, multiplier, fees, stop, target, timeframe, account label, and TradingView symbol. |
+| Daily journal | Date-by-date pre-session plan (focus, bias, levels/invalidation, allowed playbooks, max-loss R, readiness), that day’s trades and loss-budget meter, end-of-day reflection, execution grade, and recent-day history. |
 | Broker spreadsheet import | CSV alias mapping, row-level errors, multiplier support, exact-duplicate skipping, and SANTANDC round-trip export. No live broker credential sync. |
 | Emotion journaling | Separate entry and exit emotion, confidence, reasons, mistake, lesson, tags, and execution grade. |
 | Voice journaling | Optional browser dictation/transcript where the browser supports SpeechRecognition. |
@@ -17,11 +18,11 @@ This build was intentionally narrowed to **trade journaling and chart review**. 
 | Composite score | Transparent SANTANDC Score with named sub-scores instead of a black-box grade. |
 | Leak detection | Repeated negative buckets across setup, session, emotion, mistake, confidence, grade, weekday, account, and symbol, with a leave-it-out what-if. |
 | Best conditions | Positive repeated buckets, including average R where stops exist. |
-| Weekly review report | Deterministic local summary, strengths, leaks, rolling trend, reflection prompt, and one focus; downloadable as Markdown. |
+| Weekly review report | Deterministic local summary, strengths, leaks, rolling trend, reflection prompt, and one focus; downloadable as Markdown. A separate guided weekly review saves the trader’s keep/stop decisions, best/worst trades, lesson, next focus, and a point-in-time stats snapshot. |
 | Calendar review | 12-week heatmap plus a navigable month calendar and weekly/monthly rhythm summaries. |
 | Session analysis | Asia, London, London/New York overlap, New York, and Other breakdowns. |
 | Deep cuts | Playbook, account, market, timeframe, emotions, mistake, confidence, hour, and holding-time breakdowns in addition to symbol/setup/side/grade/tags. |
-| Data integrity | Versioned local backups, v1/v2 migration, validation, duplicate-ID repair, and CSV fingerprints. |
+| Data integrity | Versioned local backups (currently v4), safe v1/v2/v3 migration, validation, duplicate-ID repair, daily/weekly journal preservation, and CSV fingerprints. |
 
 ## Deliberately not included
 

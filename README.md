@@ -18,6 +18,14 @@ There is deliberately no account system, cloud database, broker connection, orde
 - Up to three chart screenshots per trade. Paste or upload them; images are resized/compressed in the browser before local storage.
 - Duplicate-an-entry, rich search, account/playbook/emotion filters, result filters including **Flat** and **Needs review**, and sorting by date, P&L, R, or holding time.
 
+### Daily journal and weekly review
+
+- A dedicated **Daily** workspace for each local calendar day: date navigation, the day’s closed trades, net P&L/R, win rate, and one-click access to edit a trade.
+- Before the session, record one focus, bias/conditions, levels/events/invalidation, allowed playbooks, a maximum planned loss in R, and a 1–5 readiness rating. The saved max-loss budget is shown against the day’s realized R.
+- After the session, record what went well, repeated mistakes, one lesson, extra notes, whether you followed the plan, and an execution grade.
+- Browse the last 14 traded or journaled days with result, grade, focus, and lesson context.
+- Guided Monday–Sunday weekly reviews capture what to keep/stop doing, best and worst trades, the biggest lesson, and one next focus. Saving stores a statistics snapshot, can prefill best/worst trades by P&L, and surfaces that week’s daily focuses and lessons.
+
 ### Playbooks and daily rules
 
 - Document each setup with its idea, markets, sessions, timeframes, entry criteria, invalidation, management rules, notes/common mistakes, and one example chart.
@@ -55,16 +63,18 @@ There is deliberately no account system, cloud database, broker connection, orde
 - CSV export includes execution, risk, playbook, account, TradingView, emotion/confidence, mistake/lesson, reasons, criteria, MAE/MFE, and source fields.
 - CSV import accepts common broker/export header aliases and SANTANDC's own export. Invalid rows are reported without discarding valid rows, negative commissions are normalized, and exact duplicate trades are skipped automatically on re-import.
 - Put `multiplier` in a broker CSV when the export uses contracts/lots rather than raw units—for example, options normally use `100`; ES futures normally use `50`; a standard forex lot normally needs `100000` if quantity is lots.
-- JSON backups are version 3 and include trades, rules/checks, playbooks, active playbook, screenshots, and starting balance. Version 1 and 2 Folio/SANTANDC backups still import and are normalized safely.
+- JSON backups are version 4 and include trades, rules/checks, playbooks, active playbook, daily entries, weekly reviews, screenshots, and starting balance. Version 1, 2, and 3 Folio/SANTANDC backups still import and are normalized safely.
 - Screenshots are browser-local, so export a JSON backup regularly. Browser storage is finite; clearing site data removes an unbacked journal.
 
 ## A good weekly workflow
 
 1. Write or tighten one playbook before the week starts.
-2. After each close, log prices first, then emotions, mistake, and one honest lesson while the memory is fresh.
-3. Open **Chart**, load the journal symbol in TradingView, and save/paste the annotated chart image into the entry if it adds evidence.
-4. At the end of the week, open **Review**. Change one repeated leak, not ten things.
-5. Download the Markdown review and a JSON backup.
+2. Before each session, open **Daily** and write the day’s focus, allowed playbooks, levels/invalidation, readiness, and maximum planned loss.
+3. After each close, log prices first, then emotions, mistake, and one honest lesson while the memory is fresh.
+4. Open **Chart**, load the journal symbol in TradingView, and save/paste the annotated chart image into the entry if it adds evidence.
+5. At the end of the day, complete the daily review and grade execution before judging P&L.
+6. At the end of the week, use **Review** for measured leaks, then save the guided weekly review in **Daily** with one focus for next week.
+7. Download the Markdown review and a JSON backup.
 
 ## Scope limits
 

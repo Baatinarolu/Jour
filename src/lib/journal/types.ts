@@ -153,8 +153,60 @@ export type Playbook = {
   updatedAt: string;
 };
 
+/** One trading day's pre-market plan and end-of-day review. */
+export type DayEntry = {
+  /** Local calendar date in YYYY-MM-DD form. */
+  date: string;
+  planFocus: string;
+  planBias: string;
+  planNotes: string;
+  allowedPlaybookIds: string[];
+  /** Optional maximum planned loss for the day, expressed in R. */
+  maxLossR: number | null;
+  /** Optional 1–5 self-rating recorded before trading. */
+  readiness?: number;
+  reviewWentWell: string;
+  reviewMistakes: string;
+  reviewLesson: string;
+  reviewNotes: string;
+  followedPlan?: boolean;
+  dayGrade?: Grade;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DayEntries = Record<string, DayEntry>;
+
+/** Point-in-time statistics preserved with a guided weekly review. */
+export type WeeklyReviewSnapshot = {
+  trades: number;
+  net: number;
+  totalR: number;
+  winRate: number | null;
+  avgR: number | null;
+  profitFactor: number | null;
+  planRate: number | null;
+};
+
+/** A trader-written review for one Monday–Sunday week. */
+export type WeeklyReview = {
+  id: string;
+  weekStart: string;
+  weekEnd: string;
+  keptDoing: string;
+  stopDoing: string;
+  bestTrade: string;
+  worstTrade: string;
+  biggestLesson: string;
+  nextFocus: string;
+  notes: string;
+  snapshot: WeeklyReviewSnapshot;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type JournalBackup = {
-  version: 3;
+  version: 4;
   startingBalance: number;
   trades: Trade[];
   rules: Rule[];
@@ -162,9 +214,11 @@ export type JournalBackup = {
   sampleBanner: boolean;
   playbooks: Playbook[];
   activePlaybookId: string | null;
+  dayEntries: DayEntries;
+  weeklyReviews: WeeklyReview[];
 };
 
-export type JournalView = "overview" | "trades" | "chart" | "review" | "rules";
+export type JournalView = "overview" | "daily" | "trades" | "chart" | "review" | "rules";
 
 export type ResultFilter = "all" | "wins" | "losses" | "offplan" | "breakeven" | "unreviewed";
 

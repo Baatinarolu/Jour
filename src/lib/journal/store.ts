@@ -4,7 +4,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { tradeFingerprint } from "./calc.ts";
 import { presetPlaybooks } from "./playbooks.ts";
 import { buildSample } from "./sample.ts";
-import type { Checks, JournalBackup, Playbook, Rule, Trade } from "./types.ts";
+import type { Checks, DayEntries, DayEntry, JournalBackup, Playbook, Rule, Trade, WeeklyReview } from "./types.ts";
 
 const JOURNAL_STORAGE_KEY = "santandc-journal-v1";
 const LEGACY_JOURNAL_STORAGE_KEY = "folio-journal-v1";
@@ -20,6 +20,12 @@ function migrateLegacyStorageKey() {
   }
 }
 
+function sortWeeklyReviews(reviews: readonly WeeklyReview[]): WeeklyReview[] {
+  return [...reviews].sort(
+    (a, b) => b.weekStart.localeCompare(a.weekStart) || b.updatedAt.localeCompare(a.updatedAt),
+  );
+}
+
 type JournalState = {
   trades: Trade[];
   rules: Rule[];
@@ -29,6 +35,8 @@ type JournalState = {
   sampleBanner: boolean;
   playbooks: Playbook[];
   activePlaybookId: string | null;
+  dayEntries: DayEntries;
+  weeklyReviews: WeeklyReview[];
   addTrade: (trade: Trade) => void;
   updateTrade: (trade: Trade) => void;
   deleteTrade: (id: string) => void;
@@ -46,6 +54,11 @@ type JournalState = {
   updatePlaybook: (playbook: Playbook) => void;
   deletePlaybook: (id: string) => void;
   setActivePlaybook: (id: string | null) => void;
+  saveDayEntry: (entry: DayEntry) => void;
+  deleteDayEntry: (date: string) => void;
+  addWeeklyReview: (review: WeeklyReview) => void;
+  updateWeeklyReview: (review: WeeklyReview) => void;
+  deleteWeeklyReview: (id: string) => void;
 };
 
 export const useJournal = create<JournalState>()(
@@ -59,6 +72,8 @@ export const useJournal = create<JournalState>()(
       sampleBanner: false,
       playbooks: presetPlaybooks(),
       activePlaybookId: "playbook-trend-pullback",
+      dayEntries: {},
+      weeklyReviews: [],
       addTrade: (trade) =>
         set((s) => ({ trades: [trade, ...s.trades], sampleBanner: false })),
       importTrades: (incoming) =>
@@ -126,9 +141,12 @@ export const useJournal = create<JournalState>()(
           sampleBanner: true,
           playbooks: sample.playbooks,
           activePlaybookId: sample.activePlaybookId,
+          dayEntries: sample.dayEntries,
+          weeklyReviews: sample.weeklyReviews,
         });
       },
-      clearTrades: () => set({ trades: [], checks: {}, sampleBanner: false, initialized: true }),
+      clearTrades: () =>
+        set({ trades: [], checks: {}, dayEntries: {}, weeklyReviews: [], sampleBanner: false, initialized: true }),
       dismissSample: () => set({ sampleBanner: false }),
       replaceAll: (data) =>
         set({
@@ -140,6 +158,8 @@ export const useJournal = create<JournalState>()(
           initialized: true,
           playbooks: data.playbooks,
           activePlaybookId: data.activePlaybookId,
+          dayEntries: data.dayEntries,
+          weeklyReviews: sortWeeklyReviews(data.weeklyReviews),
         }),
       addPlaybook: (playbook) =>
         set((s) => ({
@@ -157,15 +177,49 @@ export const useJournal = create<JournalState>()(
           playbooks: s.playbooks.filter((item) => item.id !== id),
           activePlaybookId: s.activePlaybookId === id ? (s.playbooks.find((item) => item.id !== id)?.id ?? null) : s.activePlaybookId,
           trades: s.trades.map((trade) => (trade.playbookId === id ? { ...trade, playbookId: null } : trade)),
+          dayEntries: Object.fromEntries(
+            Object.entries(s.dayEntries).map(([date, entry]) => [
+              date,
+              { ...entry, allowedPlaybookIds: entry.allowedPlaybookIds.filter((playbookId) => playbookId !== id) },
+            ]),
+          ),
           sampleBanner: false,
         })),
       setActivePlaybook: (id) => set({ activePlaybookId: id }),
+      saveDayEntry: (entry) =>
+        set((s) => ({
+          dayEntries: { ...s.dayEntries, [entry.date]: entry },
+          sampleBanner: false,
+        })),
+      deleteDayEntry: (date) =>
+        set((s) => {
+          const next = { ...s.dayEntries };
+          delete next[date];
+          return { dayEntries: next, sampleBanner: false };
+        }),
+      addWeeklyReview: (review) =>
+        set((s) => ({
+          weeklyReviews: sortWeeklyReviews([review, ...s.weeklyReviews.filter((item) => item.id !== review.id)]),
+          sampleBanner: false,
+        })),
+      updateWeeklyReview: (review) =>
+        set((s) => ({
+          weeklyReviews: sortWeeklyReviews(
+            s.weeklyReviews.map((item) => (item.id === review.id ? review : item)),
+          ),
+          sampleBanner: false,
+        })),
+      deleteWeeklyReview: (id) =>
+        set((s) => ({
+          weeklyReviews: s.weeklyReviews.filter((item) => item.id !== id),
+          sampleBanner: false,
+        })),
     }),
     {
       name: JOURNAL_STORAGE_KEY,
-      version: 1,
+      version: 2,
       migrate: (persistedState, version) => {
-        if (version >= 1) return persistedState as JournalState;
+        if (version >= 2) return persistedState as JournalState;
         const state = (persistedState ?? {}) as Partial<JournalState> & {
           trades?: Array<Trade & { multiplier?: number }>;
         };
@@ -176,6 +230,8 @@ export const useJournal = create<JournalState>()(
             multiplier:
               typeof trade.multiplier === "number" && trade.multiplier > 0 ? trade.multiplier : 1,
           })),
+          dayEntries: state.dayEntries ?? {},
+          weeklyReviews: state.weeklyReviews ?? [],
         } as unknown as JournalState;
       },
       skipHydration: true,
@@ -189,6 +245,8 @@ export const useJournal = create<JournalState>()(
         sampleBanner: s.sampleBanner,
         playbooks: s.playbooks,
         activePlaybookId: s.activePlaybookId,
+        dayEntries: s.dayEntries,
+        weeklyReviews: s.weeklyReviews,
       }),
     },
   ),

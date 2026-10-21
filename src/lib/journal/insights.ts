@@ -1,6 +1,6 @@
 import { groupTrades, journalStats, tradeDurationMinutes, tradePnl, tradeR, type GroupStat } from "./calc.ts";
-import { dayKey, emotionLabel, formatMoney, formatPct, formatR, moneyRound, sessionLabel } from "./format.ts";
-import type { Playbook, Trade } from "./types.ts";
+import { dayKey, emotionLabel, formatMoney, formatPct, formatR, moneyRound, sessionLabel, todayKey } from "./format.ts";
+import type { Playbook, Trade, WeeklyReviewSnapshot } from "./types.ts";
 
 export type RangeFilter = "today" | "week" | "14d" | "30d" | "90d" | "all";
 
@@ -15,6 +15,77 @@ export function filterTradesByRange(trades: readonly Trade[], range: RangeFilter
   else if (range === "30d") start.setDate(start.getDate() - 29);
   else if (range === "90d") start.setDate(start.getDate() - 89);
   return trades.filter((trade) => Date.parse(trade.closedAt) >= start.getTime());
+}
+
+const DAY_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function dateFromDayKey(value: string): Date | null {
+  if (!DAY_KEY_PATTERN.test(value)) return null;
+  const date = new Date(`${value}T12:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function asLocalDate(input: string | Date): Date {
+  if (input instanceof Date) return new Date(input);
+  return dateFromDayKey(input) ?? new Date(input);
+}
+
+/** Move a YYYY-MM-DD local calendar key by a whole number of days. */
+export function shiftDayKey(value: string, days: number): string {
+  const date = dateFromDayKey(value) ?? new Date();
+  date.setDate(date.getDate() + days);
+  return todayKey(date);
+}
+
+/** Monday (local time) for the week containing a date or day key. */
+export function weekStartKey(input: string | Date = new Date()): string {
+  const date = asLocalDate(input);
+  date.setHours(12, 0, 0, 0);
+  date.setDate(date.getDate() - ((date.getDay() + 6) % 7));
+  return todayKey(date);
+}
+
+/** Sunday for a Monday week-start key. */
+export function weekEndKey(weekStart: string): string {
+  return shiftDayKey(weekStart, 6);
+}
+
+/** Closed trades for one local calendar day, oldest first. */
+export function dayTrades(trades: readonly Trade[], dateKey: string): Trade[] {
+  return trades
+    .filter((trade) => dayKey(trade.closedAt) === dateKey)
+    .sort((a, b) => Date.parse(a.closedAt) - Date.parse(b.closedAt));
+}
+
+/** Closed trades in the Monday–Sunday week containing the input date. */
+export function weekTrades(trades: readonly Trade[], input: string | Date = new Date()): Trade[] {
+  const start = weekStartKey(input);
+  const end = weekEndKey(start);
+  return trades
+    .filter((trade) => {
+      const key = dayKey(trade.closedAt);
+      return key >= start && key <= end;
+    })
+    .sort((a, b) => Date.parse(a.closedAt) - Date.parse(b.closedAt));
+}
+
+/** Stable statistics stored alongside a trader-written weekly review. */
+export function weeklySnapshot(trades: readonly Trade[]): WeeklyReviewSnapshot {
+  const list = [...trades];
+  const stats = journalStats(list, 0);
+  const finiteOrNull = (value: number | null): number | null =>
+    value != null && Number.isFinite(value) ? value : null;
+  const totalR = list.reduce((sum, trade) => sum + (tradeR(trade) ?? 0), 0);
+
+  return {
+    trades: list.length,
+    net: stats.net,
+    totalR: Math.round((totalR + Number.EPSILON) * 100) / 100,
+    winRate: finiteOrNull(stats.winRate),
+    avgR: finiteOrNull(stats.avgR),
+    profitFactor: finiteOrNull(stats.profitFactor),
+    planRate: list.length ? list.filter((trade) => trade.followedPlan).length / list.length : null,
+  };
 }
 
 function clamp(value: number, min: number, max: number): number {

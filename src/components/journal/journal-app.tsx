@@ -9,7 +9,7 @@ import { filterTradesByRange, type RangeFilter } from "@/lib/journal/insights";
 import { useHydrateJournal, useJournal } from "@/lib/journal/store";
 import type { JournalView, Trade, TradeQuery } from "@/lib/journal/types";
 import { cn } from "@/lib/utils";
-import { BookOpen, ChartCandlestick, LayoutDashboard, List, Plus, Settings, SquareChartGantt } from "lucide-react";
+import { BookOpen, ChartCandlestick, LayoutDashboard, List, NotebookPen, Plus, Settings, SquareChartGantt } from "lucide-react";
 import { Suspense, lazy, useEffect, useState } from "react";
 
 const ReviewView = lazy(() =>
@@ -18,9 +18,13 @@ const ReviewView = lazy(() =>
 const ChartView = lazy(() =>
   import("@/components/journal/chart-view").then((module) => ({ default: module.ChartView })),
 );
+const DailyView = lazy(() =>
+  import("@/components/journal/daily-view").then((module) => ({ default: module.DailyView })),
+);
 
 const NAV: { id: JournalView; label: string; icon: typeof List }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "daily", label: "Daily", icon: NotebookPen },
   { id: "trades", label: "Trades", icon: List },
   { id: "chart", label: "Chart", icon: ChartCandlestick },
   { id: "review", label: "Review", icon: SquareChartGantt },
@@ -45,6 +49,8 @@ export function JournalApp() {
   const sampleBanner = useJournal((s) => s.sampleBanner);
   const playbooks = useJournal((s) => s.playbooks);
   const activePlaybookId = useJournal((s) => s.activePlaybookId);
+  const dayEntries = useJournal((s) => s.dayEntries);
+  const weeklyReviews = useJournal((s) => s.weeklyReviews);
   const addTrade = useJournal((s) => s.addTrade);
   const updateTrade = useJournal((s) => s.updateTrade);
   const deleteTrade = useJournal((s) => s.deleteTrade);
@@ -76,6 +82,7 @@ export function JournalApp() {
 
   const titles: Record<JournalView, string> = {
     overview: "Overview",
+    daily: "Daily journal",
     trades: "Trades",
     chart: "Live chart",
     review: "Review",
@@ -166,8 +173,9 @@ export function JournalApp() {
               </button>
             </div>
           </div>
-          <nav className="grid grid-cols-5 border-t border-border" aria-label="Sections">
+          <nav className="grid grid-cols-6 border-t border-border" aria-label="Sections">
             {NAV.map((item) => {
+              const Icon = item.icon;
               const active = view === item.id;
               return (
                 <button
@@ -176,11 +184,12 @@ export function JournalApp() {
                   aria-current={active ? "page" : undefined}
                   onClick={() => setView(item.id)}
                   className={cn(
-                    "h-11 text-sm",
+                    "flex h-11 min-w-0 flex-col items-center justify-center gap-0.5 px-0.5 text-[11px] leading-none",
                     active ? "text-foreground" : "text-subtle",
                   )}
                 >
-                  {item.label}
+                  <Icon className="size-4 shrink-0" />
+                  <span className="max-w-full truncate">{item.label}</span>
                 </button>
               );
             })}
@@ -275,6 +284,16 @@ export function JournalApp() {
                   onReviewRules={() => setView("rules")}
                 />
               ) : null}
+              {view === "daily" ? (
+                <Suspense fallback={<p className="text-sm text-muted">Loading daily journal…</p>}>
+                  <DailyView
+                    trades={trades}
+                    playbooks={playbooks}
+                    onEdit={setEditing}
+                    onCreate={() => setEditing(null)}
+                  />
+                </Suspense>
+              ) : null}
               {view === "trades" ? (
                 <TradesView trades={trades} query={query} onQuery={setQuery} onEdit={setEditing} playbooks={playbooks} />
               ) : null}
@@ -302,6 +321,7 @@ export function JournalApp() {
                       setQuery({ ...query, day, result: "all", q: "" });
                       setView("trades");
                     }}
+                    onOpenWeeklyReview={() => setView("daily")}
                   />
                 </Suspense>
               ) : null}
@@ -342,7 +362,7 @@ export function JournalApp() {
         onOpenChange={setSettingsOpen}
         startingBalance={startingBalance}
         backup={{
-          version: 3,
+          version: 4,
           startingBalance,
           trades,
           rules,
@@ -350,6 +370,8 @@ export function JournalApp() {
           sampleBanner,
           playbooks,
           activePlaybookId,
+          dayEntries,
+          weeklyReviews,
         }}
         onBalance={setStartingBalance}
         onReplace={replaceAll}

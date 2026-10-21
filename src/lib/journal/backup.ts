@@ -6,9 +6,11 @@ import {
   MARKETS,
   SESSIONS,
   SIDES,
+  type DayEntries,
   type JournalBackup,
   type Playbook,
   type Trade,
+  type WeeklyReview,
 } from "./types.ts";
 
 const dateString = z
@@ -102,6 +104,55 @@ const playbookSchema = z.object({
   updatedAt: dateString,
 });
 
+const calendarDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => !Number.isNaN(Date.parse(`${value}T12:00:00`)), "Invalid calendar date");
+
+const dayEntrySchema = z.object({
+  date: calendarDate,
+  planFocus: z.string().max(500),
+  planBias: z.string().max(5000),
+  planNotes: z.string().max(5000),
+  allowedPlaybookIds: z.array(z.string().min(1)).max(50),
+  maxLossR: z.number().nonnegative().finite().nullable(),
+  readiness: z.number().finite().optional(),
+  reviewWentWell: z.string().max(5000),
+  reviewMistakes: z.string().max(5000),
+  reviewLesson: z.string().max(5000),
+  reviewNotes: z.string().max(5000),
+  followedPlan: z.boolean().optional(),
+  dayGrade: z.enum(GRADES).optional(),
+  createdAt: dateString,
+  updatedAt: dateString,
+});
+
+const weeklyReviewSnapshotSchema = z.object({
+  trades: z.number().int().nonnegative().finite(),
+  net: z.number().finite(),
+  totalR: z.number().finite(),
+  winRate: z.number().finite().nullable(),
+  avgR: z.number().finite().nullable(),
+  profitFactor: z.number().finite().nullable(),
+  planRate: z.number().finite().nullable(),
+});
+
+const weeklyReviewSchema = z.object({
+  id: z.string().min(1),
+  weekStart: calendarDate,
+  weekEnd: calendarDate,
+  keptDoing: z.string().max(5000),
+  stopDoing: z.string().max(5000),
+  bestTrade: z.string().max(5000),
+  worstTrade: z.string().max(5000),
+  biggestLesson: z.string().max(5000),
+  nextFocus: z.string().max(5000),
+  notes: z.string().max(5000),
+  snapshot: weeklyReviewSnapshotSchema,
+  createdAt: dateString,
+  updatedAt: dateString,
+});
+
 const backupSchema = z.union([
   z.object({
     version: z.literal(1),
@@ -129,6 +180,18 @@ const backupSchema = z.union([
     playbooks: z.array(playbookSchema),
     activePlaybookId: z.string().nullable(),
   }),
+  z.object({
+    version: z.literal(4),
+    startingBalance: z.number().nonnegative().finite(),
+    trades: z.array(tradeSchemaV3),
+    rules: z.array(ruleSchema),
+    checks: checksSchema,
+    sampleBanner: z.boolean(),
+    playbooks: z.array(playbookSchema),
+    activePlaybookId: z.string().nullable(),
+    dayEntries: z.record(z.string(), dayEntrySchema),
+    weeklyReviews: z.array(weeklyReviewSchema),
+  }),
 ]);
 
 function uniqueById<T extends { id: string }>(items: readonly T[]): T[] {
@@ -146,7 +209,7 @@ function cleanOptional(value: string | undefined): string | undefined {
 }
 
 function normalizeBackup(data: z.infer<typeof backupSchema>): JournalBackup {
-  const playbooks: Playbook[] = data.version === 3
+  const playbooks: Playbook[] = data.version === 3 || data.version === 4
     ? uniqueById(data.playbooks).map((playbook) => ({
         ...playbook,
         name: playbook.name.trim(),
@@ -161,7 +224,7 @@ function normalizeBackup(data: z.infer<typeof backupSchema>): JournalBackup {
       }))
     : presetPlaybooks();
   const playbookIds = new Set(playbooks.map((item) => item.id));
-  const activePlaybookId = data.version === 3 && data.activePlaybookId && playbookIds.has(data.activePlaybookId)
+  const activePlaybookId = (data.version === 3 || data.version === 4) && data.activePlaybookId && playbookIds.has(data.activePlaybookId)
     ? data.activePlaybookId
     : (playbooks[0]?.id ?? null);
 
@@ -215,8 +278,54 @@ function normalizeBackup(data: z.infer<typeof backupSchema>): JournalBackup {
       .map(([date, ids]) => [date, [...new Set(ids.filter((id) => ruleIds.has(id)))]]),
   );
 
+  const dayEntries: DayEntries = {};
+  if (data.version === 4) {
+    for (const [key, entry] of Object.entries(data.dayEntries)) {
+      if (key !== entry.date) continue;
+      dayEntries[key] = {
+        ...entry,
+        planFocus: entry.planFocus.trim(),
+        planBias: entry.planBias.trim(),
+        planNotes: entry.planNotes.trim(),
+        allowedPlaybookIds: [...new Set(entry.allowedPlaybookIds.filter((id) => playbookIds.has(id)))],
+        maxLossR:
+          entry.maxLossR != null && Number.isFinite(entry.maxLossR) && entry.maxLossR >= 0
+            ? entry.maxLossR
+            : null,
+        readiness:
+          typeof entry.readiness === "number" && Number.isFinite(entry.readiness)
+            ? Math.min(5, Math.max(1, Math.round(entry.readiness)))
+            : undefined,
+        reviewWentWell: entry.reviewWentWell.trim(),
+        reviewMistakes: entry.reviewMistakes.trim(),
+        reviewLesson: entry.reviewLesson.trim(),
+        reviewNotes: entry.reviewNotes.trim(),
+      };
+    }
+  }
+
+  const weeklyReviews: WeeklyReview[] = data.version === 4
+    ? uniqueById(data.weeklyReviews)
+        .filter((review) => review.weekEnd >= review.weekStart)
+        .map((review) => ({
+          ...review,
+          keptDoing: review.keptDoing.trim(),
+          stopDoing: review.stopDoing.trim(),
+          bestTrade: review.bestTrade.trim(),
+          worstTrade: review.worstTrade.trim(),
+          biggestLesson: review.biggestLesson.trim(),
+          nextFocus: review.nextFocus.trim(),
+          notes: review.notes.trim(),
+          snapshot: {
+            ...review.snapshot,
+            trades: Math.max(0, Math.trunc(review.snapshot.trades)),
+          },
+        }))
+        .sort((a, b) => b.weekStart.localeCompare(a.weekStart) || b.updatedAt.localeCompare(a.updatedAt))
+    : [];
+
   return {
-    version: 3,
+    version: 4,
     startingBalance: data.startingBalance,
     trades,
     rules,
@@ -224,6 +333,8 @@ function normalizeBackup(data: z.infer<typeof backupSchema>): JournalBackup {
     sampleBanner: data.sampleBanner,
     playbooks,
     activePlaybookId,
+    dayEntries,
+    weeklyReviews,
   };
 }
 

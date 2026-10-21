@@ -84,12 +84,14 @@ export function ReviewView({
   playbooks = [],
   startingBalance = 0,
   metric = "money",
+  onOpenWeeklyReview,
 }: {
   trades: Trade[];
   onOpenDay: (day: string) => void;
   playbooks?: Playbook[];
   startingBalance?: number;
   metric?: PerformanceMode;
+  onOpenWeeklyReview?: () => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -183,7 +185,7 @@ export function ReviewView({
 
   return (
     <div className="grid gap-3">
-      <JournalInsights trades={trades} playbooks={playbooks} startingBalance={startingBalance} onOpenDay={onOpenDay} />
+      <JournalInsights trades={trades} playbooks={playbooks} startingBalance={startingBalance} onOpenDay={onOpenDay} onOpenWeeklyReview={onOpenWeeklyReview} />
       <div className="grid gap-3 lg:grid-cols-2">
         <section className="min-w-0 rounded-xl border border-border bg-card p-4">
           <h2 className="text-sm font-medium text-muted">Daily result</h2>

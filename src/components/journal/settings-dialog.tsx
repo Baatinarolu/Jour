@@ -180,13 +180,13 @@ export function SettingsDialog({
           />
         </div>
         <p className="-mt-3 text-sm text-subtle">
-          CSV adds trades and automatically skips exact duplicates on re-import. Screenshots live in the JSON backup, not CSV. A backup replaces the journal including playbooks.
+          CSV adds trades and automatically skips exact duplicates on re-import. Screenshots live in the JSON backup, not CSV. A backup replaces the journal including playbooks, daily entries, and weekly reviews.
         </p>
 
         {pending ? (
           <div className="rounded-sm border border-border bg-background p-4">
             <p className="text-sm">
-              Replace this journal with {pending.trades.length} trades and {pending.playbooks.length} playbooks from the file?
+              Replace this journal with {pending.trades.length} trades, {pending.playbooks.length} playbooks, {Object.keys(pending.dayEntries).length} daily entries, and {pending.weeklyReviews.length} weekly reviews from the file?
             </p>
             <div className="mt-3 flex gap-2">
               <Button
@@ -234,7 +234,7 @@ export function SettingsDialog({
 
         {mode === "clear" ? (
           <div className="rounded-sm border border-border bg-background p-4">
-            <p className="text-sm">Erase every trade? Rules and the starting balance stay.</p>
+            <p className="text-sm">Erase every trade, daily entry, and weekly review? Rules, playbooks, and the starting balance stay.</p>
             <div className="mt-3 flex gap-2">
               <Button
                 variant="danger"
@@ -253,7 +253,7 @@ export function SettingsDialog({
           </div>
         ) : mode === "sample" ? (
           <div className="rounded-sm border border-border bg-background p-4">
-            <p className="text-sm">Replace trades, rules, playbooks, and balance with the sample book?</p>
+            <p className="text-sm">Replace trades, rules, playbooks, daily entries, weekly reviews, and balance with the sample book?</p>
             <div className="mt-3 flex gap-2">
               <Button
                 variant="danger"

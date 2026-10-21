@@ -1,5 +1,7 @@
+import { dayKey } from "./format.ts";
+import { weekEndKey, weekStartKey, weekTrades, weeklySnapshot } from "./insights.ts";
 import { presetPlaybooks } from "./playbooks.ts";
-import type { Emotion, Playbook, Rule, Trade } from "./types.ts";
+import type { DayEntries, Emotion, Playbook, Rule, Trade, WeeklyReview } from "./types.ts";
 
 function iso(daysAgo: number, hour: number, minute = 0): string {
   const d = new Date();
@@ -31,7 +33,14 @@ export const SAMPLE_RULES: Rule[] = [
   { id: "r5", text: "Write the lesson before the next order." },
 ];
 
-export function buildSample(): { trades: Trade[]; rules: Rule[]; playbooks: Playbook[]; activePlaybookId: string | null } {
+export function buildSample(): {
+  trades: Trade[];
+  rules: Rule[];
+  playbooks: Playbook[];
+  activePlaybookId: string | null;
+  dayEntries: DayEntries;
+  weeklyReviews: WeeklyReview[];
+} {
   const trades: Trade[] = [
     dayTrade({
       id: "t-aapl-1",
@@ -480,10 +489,87 @@ export function buildSample(): { trades: Trade[]; rules: Rule[]; playbooks: Play
     };
   });
 
+  const nowIso = new Date().toISOString();
+  const sampleDayCopy = [
+    {
+      focus: "Take only the first planned setup. No second attempt.",
+      well: "Waited for the level and let the planned target do the work.",
+      mistakes: "Checked the P&L too often while price was still inside the plan.",
+    },
+    {
+      focus: "Protect the morning: one A setup, then reassess.",
+      well: "Stopped after the plan stopped working instead of trying to earn it back.",
+      mistakes: "The first entry was early; confirmation would have improved location.",
+    },
+    {
+      focus: "Trade the playbook, not the boredom between setups.",
+      well: "Every order had a stop and a written reason before entry.",
+      mistakes: "Let one ordinary trade take more attention than it deserved.",
+    },
+    {
+      focus: "Size from the stop. Two losses ends the session.",
+      well: "Kept size normal after a winner and finished the review before logging off.",
+      mistakes: "Reviewed the result before reviewing the execution.",
+    },
+  ];
+  const recentSampleDays = [
+    ...new Map(enriched.map((trade) => [dayKey(trade.closedAt), trade] as const)).entries(),
+  ].slice(-4);
+  const dayEntries: DayEntries = {};
+  recentSampleDays.forEach(([date], index) => {
+    const dayList = enriched.filter((trade) => dayKey(trade.closedAt) === date);
+    const first = dayList[0];
+    if (!first) return;
+    const copy = sampleDayCopy[index % sampleDayCopy.length];
+    const mistakes = [...new Set(dayList.map((trade) => trade.mistake).filter(Boolean))].join("; ");
+    dayEntries[date] = {
+      date,
+      planFocus: copy.focus,
+      planBias: `${first.setup || "Planned setup"} only, in the ${first.session} session. Stand aside if the level does not come to me.`,
+      planNotes: "Sample plan: mark the prior high/low, define invalidation, and write the exit before the first order.",
+      allowedPlaybookIds: [...new Set(dayList.map((trade) => trade.playbookId).filter((id): id is string => Boolean(id)))],
+      maxLossR: 2,
+      readiness: [4, 3, 5, 4][index % 4],
+      reviewWentWell: copy.well,
+      reviewMistakes: mistakes || copy.mistakes,
+      reviewLesson: first.lesson || first.notes,
+      reviewNotes: "Sample daily entry. Replace it with the plan and review for your own trading day.",
+      followedPlan: dayList.every((trade) => trade.followedPlan),
+      dayGrade: first.grade,
+      createdAt: `${date}T08:00:00.000Z`,
+      updatedAt: `${date}T21:00:00.000Z`,
+    };
+  });
+
+  const latestTrade = enriched.at(-1);
+  const sampleWeekStart = weekStartKey(latestTrade?.closedAt ?? nowIso);
+  const sampleWeekTrades = weekTrades(enriched, sampleWeekStart);
+  const weeklyReviews: WeeklyReview[] = [
+    {
+      id: "sample-weekly-review",
+      weekStart: sampleWeekStart,
+      weekEnd: weekEndKey(sampleWeekStart),
+      keptDoing: "Waiting for planned levels and writing the lesson while the trade is still fresh.",
+      stopDoing: "Letting one excited or frustrated trade change the size of the next one.",
+      bestTrade: latestTrade
+        ? `${latestTrade.symbol} ${latestTrade.setup}: the process was clear before entry and the exit matched the plan.`
+        : "No standout trade this week.",
+      worstTrade: "The most expensive trades were the ones where location or size came from emotion instead of the playbook.",
+      biggestLesson: "A good loss at planned size is information; an oversized win is still a process leak.",
+      nextFocus: "Only A/B playbook trades for the first hour. Stop after two planned losses.",
+      notes: "Sample weekly review. Use the prompts at the end of your own trading week.",
+      snapshot: weeklySnapshot(sampleWeekTrades),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    },
+  ];
+
   return {
     trades: enriched,
     rules: SAMPLE_RULES.map((rule) => ({ ...rule })),
     playbooks,
     activePlaybookId: playbooks[0]?.id ?? null,
+    dayEntries,
+    weeklyReviews,
   };
 }

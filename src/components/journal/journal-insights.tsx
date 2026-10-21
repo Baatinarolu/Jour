@@ -40,11 +40,13 @@ export function JournalInsights({
   playbooks,
   startingBalance,
   onOpenDay,
+  onOpenWeeklyReview,
 }: {
   trades: Trade[];
   playbooks: Playbook[];
   startingBalance: number;
   onOpenDay: (day: string) => void;
+  onOpenWeeklyReview?: () => void;
 }) {
   const [reportDays, setReportDays] = useState<7 | 30 | 90>(7);
   const [selectedLeak, setSelectedLeak] = useState(0);
@@ -133,6 +135,11 @@ export function JournalInsights({
             >
               Download report
             </Button>
+            {onOpenWeeklyReview ? (
+              <Button size="sm" variant="secondary" onClick={onOpenWeeklyReview}>
+                Guided weekly review
+              </Button>
+            ) : null}
           </div>
         </div>
         <p className="mt-4 text-sm leading-6">{report.summary}</p>
